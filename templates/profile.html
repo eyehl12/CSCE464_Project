@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CampusBid Profile</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        :root { --campus-red: #9f1239; --campus-red-dark: #7f1d1d; }
+        body { font-family: 'Inter', sans-serif; }
+    </style>
 </head>
 <body class="min-h-screen bg-gradient-to-b from-red-950 via-red-900 to-stone-950 text-white">
     <div class="mx-auto max-w-5xl px-6 py-12">
@@ -12,10 +17,12 @@
             <div>
                 <a href="/" class="text-sm text-red-200 hover:text-white">Back to CampusBid</a>
                 <h1 class="mt-4 text-4xl font-bold">Profile</h1>
-                <p class="mt-2 text-red-100">Manage your account credentials.</p>
+                <p class="mt-2 text-red-100">Manage your account, listings, and bids.</p>
             </div>
+            <a href="/sell" class="rounded-2xl bg-red-500 px-6 py-3 font-semibold text-white transition hover:bg-red-400 no-underline text-sm">+ Create Listing</a>
         </div>
 
+        <!-- ═══ Account & Password ═══ -->
         <div class="mt-10 grid gap-6 md:grid-cols-2">
             <section class="rounded-3xl border border-red-400/20 bg-white/10 p-8 shadow-2xl backdrop-blur">
                 <h2 class="text-xl font-semibold">Account Details</h2>
@@ -40,20 +47,40 @@
                     <button type="submit" class="w-full rounded-2xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-400">Update Password</button>
                 </form>
             </section>
-
-            <section class="rounded-3xl border border-red-400/20 bg-black/20 p-8 shadow-2xl md:col-span-2">
-                <h2 class="text-xl font-semibold text-red-100">Delete Account</h2>
-                <p class="mt-2 text-sm text-red-200">This permanently removes your account. Enter your password to confirm.</p>
-                <form id="delete-form" class="mt-6 flex flex-col gap-4 md:flex-row">
-                    <input id="delete_password" type="password" required class="flex-1 rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-red-100/50 focus:border-red-300" placeholder="Password confirmation">
-                    <button type="submit" class="rounded-2xl bg-white px-6 py-3 font-semibold text-red-700 transition hover:bg-red-100">Delete Account</button>
-                </form>
-                <p id="delete-message" class="mt-4 hidden rounded-2xl px-4 py-3 text-sm"></p>
-            </section>
         </div>
+
+        <!-- ═══ My Listings ═══ -->
+        <section class="mt-10">
+            <h2 class="text-2xl font-bold mb-4">My Listings</h2>
+            <div id="my-listings-empty" class="hidden rounded-2xl border border-dashed border-red-400/30 px-6 py-8 text-center text-red-100/70 text-sm">
+                You haven't created any listings yet. <a href="/sell" class="font-semibold text-white underline underline-offset-4">Create one now →</a>
+            </div>
+            <div id="my-listings" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
+        </section>
+
+        <!-- ═══ My Bids ═══ -->
+        <section class="mt-10">
+            <h2 class="text-2xl font-bold mb-4">My Bids</h2>
+            <div id="my-bids-empty" class="hidden rounded-2xl border border-dashed border-red-400/30 px-6 py-8 text-center text-red-100/70 text-sm">
+                You haven't placed any bids yet. <a href="/" class="font-semibold text-white underline underline-offset-4">Browse auctions →</a>
+            </div>
+            <div id="my-bids" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
+        </section>
+
+        <!-- ═══ Danger Zone ═══ -->
+        <section class="mt-10 rounded-3xl border border-red-400/20 bg-black/20 p-8 shadow-2xl">
+            <h2 class="text-xl font-semibold text-red-100">Delete Account</h2>
+            <p class="mt-2 text-sm text-red-200">This permanently removes your account and all your listings. Enter your password to confirm.</p>
+            <form id="delete-form" class="mt-6 flex flex-col gap-4 md:flex-row">
+                <input id="delete_password" type="password" required class="flex-1 rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-red-100/50 focus:border-red-300" placeholder="Password confirmation">
+                <button type="submit" class="rounded-2xl bg-white px-6 py-3 font-semibold text-red-700 transition hover:bg-red-100">Delete Account</button>
+            </form>
+            <p id="delete-message" class="mt-4 hidden rounded-2xl px-4 py-3 text-sm"></p>
+        </section>
     </div>
 
     <script>
+        // ── Helpers ──
         function showMessage(elementId, text, isError = false) {
             const element = document.getElementById(elementId);
             element.textContent = text;
@@ -61,6 +88,20 @@
             element.classList.remove('hidden');
         }
 
+        function dollars(v) { return '$' + v.toFixed(2); }
+
+        function timeLeft(endsAt) {
+            const diff = new Date(endsAt) - Date.now();
+            if (diff <= 0) return 'Ended';
+            const d = Math.floor(diff / 86400000);
+            const h = Math.floor((diff % 86400000) / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            if (d > 0) return d + 'd ' + h + 'h left';
+            if (h > 0) return h + 'h ' + m + 'm left';
+            return m + 'm left';
+        }
+
+        // ── Change Password ──
         document.getElementById('password-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             const response = await fetch('/api/change-password', {
@@ -79,6 +120,7 @@
             }
         });
 
+        // ── Delete Account ──
         document.getElementById('delete-form').addEventListener('submit', async (event) => {
             event.preventDefault();
             const response = await fetch('/api/delete-account', {
@@ -100,6 +142,95 @@
                 window.location.href = '/';
             }, 800);
         });
+
+        // ── Load My Listings ──
+        (async function () {
+            const container = document.getElementById('my-listings');
+            const empty = document.getElementById('my-listings-empty');
+            try {
+                const res = await fetch('/api/my/listings');
+                const data = await res.json();
+                const items = data.listings || [];
+
+                if (items.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    const price = item.current_bid || item.starting_price;
+                    const ended = item.is_ended;
+                    const tl = ended ? 'Ended' : timeLeft(item.ends_at);
+
+                    const card = document.createElement('a');
+                    card.href = '/listing/' + item.id;
+                    card.className = 'block rounded-2xl border border-red-400/20 bg-white/10 p-5 backdrop-blur transition hover:bg-white/20 no-underline text-inherit';
+                    card.innerHTML = `
+                        <div class="text-xs font-bold uppercase tracking-wide text-red-300 mb-1">${item.category_label}</div>
+                        <h3 class="text-sm font-semibold text-white mb-2">${item.title}</h3>
+                        <div class="text-lg font-bold text-white">${dollars(price)}
+                            <span class="text-xs font-normal text-red-200 ml-1">${item.current_bid ? 'current bid' : 'starting bid'}</span>
+                        </div>
+                        <div class="mt-2 flex items-center gap-3 text-xs text-red-100/80">
+                            <span>${item.bid_count} bid${item.bid_count !== 1 ? 's' : ''}</span>
+                            <span class="${ended ? 'text-gray-400' : 'text-amber-400'}">${tl}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                console.error('Failed to load listings:', err);
+            }
+        })();
+
+        // ── Load My Bids ──
+        (async function () {
+            const container = document.getElementById('my-bids');
+            const empty = document.getElementById('my-bids-empty');
+            try {
+                const res = await fetch('/api/my/bids');
+                const data = await res.json();
+                const items = data.bids || [];
+
+                if (items.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    const price = item.current_bid || item.starting_price;
+                    const ended = item.is_ended;
+                    const tl = ended ? 'Ended' : timeLeft(item.ends_at);
+                    const winClass = item.is_winning ? 'border-green-400/40 bg-green-900/20' : 'border-red-400/20 bg-white/10';
+                    const badge = item.is_winning
+                        ? '<span class="bg-green-500/20 text-green-300 text-xs px-2 py-0.5 rounded-full font-bold">Winning</span>'
+                        : '<span class="bg-red-500/20 text-red-300 text-xs px-2 py-0.5 rounded-full font-bold">Outbid</span>';
+
+                    const card = document.createElement('a');
+                    card.href = '/listing/' + item.id;
+                    card.className = 'block rounded-2xl border p-5 backdrop-blur transition hover:bg-white/20 no-underline text-inherit ' + winClass;
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs font-bold uppercase tracking-wide text-red-300">${item.category_label}</div>
+                            ${ended ? '<span class="text-xs text-gray-400">Ended</span>' : badge}
+                        </div>
+                        <h3 class="text-sm font-semibold text-white mb-2">${item.title}</h3>
+                        <div class="text-lg font-bold text-white">${dollars(price)}
+                            <span class="text-xs font-normal text-red-200 ml-1">current bid</span>
+                        </div>
+                        <div class="mt-1 text-xs text-red-100/80">Your highest bid: <strong class="text-white">${dollars(item.my_highest_bid)}</strong></div>
+                        <div class="mt-2 flex items-center gap-3 text-xs text-red-100/80">
+                            <span>${item.bid_count} bid${item.bid_count !== 1 ? 's' : ''}</span>
+                            <span>Seller: ${item.seller_name}</span>
+                            <span class="${ended ? 'text-gray-400' : 'text-amber-400'}">${tl}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                console.error('Failed to load bids:', err);
+            }
+        })();
     </script>
 </body>
 </html>

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBid | Listing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        :root { --campus-red: #9f1239; --campus-red-dark: #7f1d1d; }
+        body { font-family: 'Inter', sans-serif; }
+        .countdown { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-rose-50 to-white text-gray-800">
+
+    <!-- ═══════ Navbar ═══════ -->
+    <header class="bg-[var(--campus-red)] text-white sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
+            <a href="/" class="text-2xl font-extrabold hover:opacity-90 no-underline text-white">CampusBid<span class="text-rose-200">.</span></a>
+            <div class="flex-grow"></div>
+            <nav class="flex items-center gap-3 text-sm font-semibold">
+                {% if current_user %}
+                    <a href="/sell" class="px-3 py-1.5 rounded border border-rose-200 hover:bg-rose-800 text-white no-underline">+ Sell Item</a>
+                    <a href="/profile" class="px-3 py-1.5 rounded border border-rose-200 hover:bg-rose-800 text-white no-underline">Hi, {{ current_user.name }}</a>
+                {% else %}
+                    <a href="/login" class="px-3 py-1.5 rounded border border-rose-200 hover:bg-rose-800 text-white no-underline">Login</a>
+                    <a href="/register" class="px-3 py-1.5 rounded border border-rose-200 hover:bg-rose-800 text-white no-underline">Register</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <!-- ═══════ Content (filled by JS) ═══════ -->
+    <main id="main-content" class="max-w-5xl mx-auto px-4 py-10">
+        <p id="loading-msg" class="text-center text-rose-700 font-semibold animate-pulse py-20">Loading auction…</p>
+    </main>
+
+    <!-- ═══════ Footer ═══════ -->
+    <footer class="bg-rose-950 text-rose-100 py-10 text-center mt-16">
+        <p class="text-sm opacity-75">&copy; 2026 CampusBid Lab</p>
+    </footer>
+
+    <script>
+    (function () {
+        const LISTING_ID = {{ listing_id }};
+        const main = document.getElementById('main-content');
+
+        // ── Helpers ──
+        function timeLeft(endsAt) {
+            const diff = new Date(endsAt) - Date.now();
+            if (diff <= 0) return 'Ended';
+            const d = Math.floor(diff / 86400000);
+            const h = Math.floor((diff % 86400000) / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+            if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+            return m + 'm ' + s + 's';
+        }
+
+        function dollars(val) { return '$' + val.toFixed(2); }
+
+        function relTime(iso) {
+            const diff = Date.now() - new Date(iso);
+            const m = Math.floor(diff / 60000);
+            if (m < 1) return 'just now';
+            if (m < 60) return m + 'm ago';
+            const h = Math.floor(m / 60);
+            if (h < 24) return h + 'h ago';
+            return Math.floor(h / 24) + 'd ago';
+        }
+
+        // ── Fetch & render ──
+        async function load() {
+            const res = await fetch('/api/listings/' + LISTING_ID);
+            if (!res.ok) {
+                main.innerHTML = '<p class="text-center text-red-600 py-20 font-semibold">Listing not found.</p>';
+                return;
+            }
+            const item = await res.json();
+            render(item);
+        }
+
+        function render(item) {
+            const ended = item.is_ended;
+            const price = item.current_bid ?? item.starting_price;
+            const priceLabel = item.current_bid ? 'Current Bid' : 'Starting Bid';
+            const minBid = item.current_bid ? (item.current_bid + 0.01) : item.starting_price;
+
+            let bidFormHTML = '';
+            {% if current_user %}
+                if (item.user_is_seller) {
+                    bidFormHTML = '<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 font-medium">This is your listing. You cannot bid on it.</div>';
+                } else if (ended) {
+                    bidFormHTML = '<div class="bg-gray-100 border border-gray-200 rounded-xl p-4 text-sm text-gray-600 font-medium">This auction has ended.</div>';
+                } else {
+                    bidFormHTML = `
+                        <div class="bg-rose-50 border border-rose-200 rounded-xl p-5">
+                            <h3 class="text-sm font-bold text-rose-800 mb-3">Place Your Bid</h3>
+                            ${item.user_highest_bid ? '<p class="text-xs text-gray-600 mb-2">Your highest bid: <strong>' + dollars(item.user_highest_bid) + '</strong></p>' : ''}
+                            <form id="bid-form" class="flex gap-3 items-end">
+                                <div class="flex-grow">
+                                    <label class="text-xs font-semibold text-gray-700 block mb-1">Amount ($)</label>
+                                    <input id="bid-amount" type="number" step="0.01" min="${minBid.toFixed(2)}" value="${(Math.ceil(minBid * 2) / 2).toFixed(2)}"
+                                           class="w-full rounded-lg border border-rose-300 px-4 py-2 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-rose-500">
+                                </div>
+                                <button type="submit" class="bg-[var(--campus-red)] hover:bg-[var(--campus-red-dark)] text-white px-8 py-2.5 rounded-lg font-bold transition-all shadow-sm whitespace-nowrap">
+                                    Bid Now
+                                </button>
+                            </form>
+                            <p id="bid-msg" class="text-xs mt-2 hidden"></p>
+                        </div>
+                    `;
+                }
+            {% else %}
+                bidFormHTML = '<div class="bg-rose-50 border border-rose-200 rounded-xl p-5 text-center"><a href="/login" class="text-rose-700 font-semibold hover:underline">Login</a> or <a href="/register" class="text-rose-700 font-semibold hover:underline">Register</a> to place a bid.</div>';
+            {% endif %}
+
+            // Bid history rows
+            let bidRows = '';
+            if (item.bids && item.bids.length > 0) {
+                item.bids.forEach(function (b, i) {
+                    const isTop = i === 0;
+                    bidRows += `
+                        <tr class="${isTop ? 'bg-green-50 font-semibold' : ''}">
+                            <td class="px-4 py-2 text-sm">${b.bidder_name}</td>
+                            <td class="px-4 py-2 text-sm font-mono">${dollars(b.amount)}</td>
+                            <td class="px-4 py-2 text-xs text-gray-500">${relTime(b.created_at)}</td>
+                            <td class="px-4 py-2 text-xs">${isTop ? '<span class="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-xs font-bold">Highest</span>' : ''}</td>
+                        </tr>`;
+                });
+            } else {
+                bidRows = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No bids yet — be the first!</td></tr>';
+            }
+
+            main.innerHTML = `
+                <a href="/" class="inline-flex items-center gap-1 text-rose-700 hover:text-rose-900 text-sm font-semibold mb-6">
+                    ← Back to Auctions
+                </a>
+
+                <div class="grid md:grid-cols-2 gap-8">
+                    <!-- Left: Image -->
+                    <div class="bg-white border border-rose-200 rounded-xl overflow-hidden shadow-sm">
+                        <img src="${item.image_url}" alt="${item.title}" class="w-full h-80 md:h-96 object-cover">
+                    </div>
+
+                    <!-- Right: Info -->
+                    <div class="flex flex-col gap-4">
+                        <div class="text-xs font-bold uppercase tracking-wide text-rose-700">${item.category_label}</div>
+                        <h1 class="text-2xl md:text-3xl font-black text-gray-900">${item.title}</h1>
+                        <p class="text-gray-600 text-sm leading-relaxed">${item.description}</p>
+
+                        <div class="flex items-center gap-2 text-sm text-gray-500">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            Seller: <span class="font-semibold text-gray-700">${item.seller_name}</span>
+                        </div>
+
+                        <!-- Price block -->
+                        <div class="bg-white border border-rose-200 rounded-xl p-5 shadow-sm">
+                            <div class="flex items-baseline gap-3">
+                                <span class="text-3xl font-black text-gray-900">${dollars(price)}</span>
+                                <span class="text-sm text-gray-500">${priceLabel}</span>
+                            </div>
+                            <div class="flex items-center gap-4 mt-2 text-sm text-gray-600">
+                                <span>${item.bid_count} bid${item.bid_count !== 1 ? 's' : ''}</span>
+                                <span class="countdown ${ended ? 'text-gray-400' : 'text-amber-600'} font-semibold" id="timer">
+                                    ${ended ? 'Auction Ended' : '⏱ ' + timeLeft(item.ends_at)}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Bid form -->
+                        ${bidFormHTML}
+                    </div>
+                </div>
+
+                <!-- Bid history -->
+                <section class="mt-10">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">Bid History (${item.bid_count})</h2>
+                    <div class="bg-white border border-rose-200 rounded-xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left">
+                            <thead class="bg-rose-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase text-rose-700">Bidder</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase text-rose-700">Amount</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase text-rose-700">Time</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase text-rose-700"></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-rose-100">${bidRows}</tbody>
+                        </table>
+                    </div>
+                </section>
+            `;
+
+            // ── Attach bid form handler ──
+            const bidForm = document.getElementById('bid-form');
+            if (bidForm) {
+                bidForm.addEventListener('submit', async function (e) {
+                    e.preventDefault();
+                    const amt = parseFloat(document.getElementById('bid-amount').value);
+                    const msg = document.getElementById('bid-msg');
+                    msg.classList.remove('hidden', 'text-green-700', 'text-red-600');
+
+                    const res = await fetch('/api/listings/' + LISTING_ID + '/bid', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ amount: amt }),
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        msg.textContent = 'Bid placed! (' + dollars(data.amount) + ')';
+                        msg.classList.add('text-green-700');
+                        msg.classList.remove('hidden');
+                        setTimeout(function () { load(); }, 800);
+                    } else {
+                        msg.textContent = data.error || 'Failed to place bid.';
+                        msg.classList.add('text-red-600');
+                        msg.classList.remove('hidden');
+                    }
+                });
+            }
+
+            // ── Countdown ticker ──
+            if (!ended) {
+                setInterval(function () {
+                    const el = document.getElementById('timer');
+                    if (!el) return;
+                    const diff = new Date(item.ends_at) - Date.now();
+                    if (diff <= 0) {
+                        el.innerHTML = '<span class="text-gray-400">Auction Ended</span>';
+                        el.classList.remove('text-amber-600');
+                    } else {
+                        el.textContent = '⏱ ' + timeLeft(item.ends_at);
+                    }
+                }, 1000);
+            }
+        }
+
+        // ── Init ──
+        load();
+    })();
+    </script>
+</body>
+</html>

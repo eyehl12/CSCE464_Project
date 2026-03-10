@@ -9,7 +9,7 @@ Before first run, initialize the database:
 """
 
 import os
-import secrets
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -33,30 +33,7 @@ IMAGE_DIR = os.path.join(os.path.dirname(__file__), "static", "images")
 NUM_IMAGES = len([name for name in os.listdir(IMAGE_DIR) if name.lower().endswith(".jpg")])
 
 
-def get_guest_key():
-    """Get or create a guest session key stored in the Flask session."""
-    if "guest_key" not in session:
-        session["guest_key"] = secrets.token_hex(16)
-    return session["guest_key"]
-
-
-def get_or_create_cart_id(guest_key):
-    """Return the DB cart id for the current guest, creating it if needed."""
-    conn = get_conn()
-    cur = conn.cursor(dictionary=True)
-
-    cur.execute("SELECT id FROM carts WHERE guest_key = %s", (guest_key,))
-    row = cur.fetchone()
-    if row:
-        cart_id = row["id"]
-    else:
-        cur.execute("INSERT INTO carts (guest_key) VALUES (%s)", (guest_key,))
-        conn.commit()
-        cart_id = cur.lastrowid
-
-    cur.close()
-    conn.close()
-    return cart_id
+# ─── Helpers ───────────────────────────────────────────
 
 
 def get_current_user():
@@ -83,25 +60,60 @@ def login_required(func):
     return wrapped
 
 
-def product_row_to_json(row):
-    """Map a DB product row to the JSON shape expected by the current frontend."""
+def _time_left_str(ends_at):
+    """Human-readable time remaining string."""
+    if ends_at is None:
+        return "N/A"
+    now = datetime.now()
+    diff = ends_at - now
+    total_seconds = int(diff.total_seconds())
+    if total_seconds <= 0:
+        return "Ended"
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    if days > 0:
+        return f"{days}d {hours}h left"
+    if hours > 0:
+        return f"{hours}h {minutes}m left"
+    return f"{minutes}m left"
+
+
+def listing_row_to_json(row):
+    """Map a DB listing row to the JSON shape expected by the frontend."""
+    current_bid_cents = row.get("current_bid_cents")
+    starting = row["starting_price_cents"]
+    price_cents = current_bid_cents if current_bid_cents else starting
+    bid_count = row.get("bid_count", 0) or 0
+
     return {
         "id": row["id"],
-        "name": row["name"],
+        "title": row["title"],
+        "description": row.get("description", ""),
         "category": row["category"],
         "category_label": CATEGORY_LABELS.get(row["category"], row["category"]),
-        "price": round(row["price_cents"] / 100, 2),
-        "rating": float(row["rating"]),
-        "reviews": row["reviews"],
-        "bid_count": row["bid_count"],
-        "time_left": f"{row['time_left_hours']}h left",
-        "image_url": f"/api/products/{row['id']}/image",
+        "starting_price": round(starting / 100, 2),
+        "current_bid": round(current_bid_cents / 100, 2) if current_bid_cents else None,
+        "price": round(price_cents / 100, 2),
+        "bid_count": bid_count,
+        "ends_at": row["ends_at"].isoformat() if row.get("ends_at") else None,
+        "is_ended": row["ends_at"] < datetime.now() if row.get("ends_at") else False,
+        "time_left": _time_left_str(row.get("ends_at")),
+        "seller_id": row.get("seller_id"),
+        "seller_name": row.get("seller_name", "Unknown"),
+        "image_url": f"/api/listings/{row['id']}/image",
     }
+
+
+# ─── Context Processor ────────────────────────────────
 
 
 @app.context_processor
 def inject_user():
     return {"current_user": get_current_user()}
+
+
+# ─── Page Routes ──────────────────────────────────────
 
 
 @app.get("/")
@@ -123,6 +135,20 @@ def page_login():
 @login_required
 def page_profile():
     return render_template("profile.html")
+
+
+@app.get("/sell")
+@login_required
+def page_sell():
+    return render_template("sell.html")
+
+
+@app.get("/listing/<int:listing_id>")
+def page_listing(listing_id):
+    return render_template("listing.html", listing_id=listing_id)
+
+
+# ─── Auth API ─────────────────────────────────────────
 
 
 @app.post("/api/register")
@@ -259,8 +285,21 @@ def api_delete_account():
     return jsonify({"ok": True})
 
 
-@app.get("/api/products")
-def api_products():
+# ─── Listings API ─────────────────────────────────────
+
+LISTINGS_SELECT = """
+    SELECT l.id, l.title, l.description, l.category,
+           l.starting_price_cents, l.ends_at, l.seller_id, l.created_at,
+           u.name AS seller_name,
+           (SELECT MAX(b.amount_cents) FROM bids b WHERE b.listing_id = l.id) AS current_bid_cents,
+           (SELECT COUNT(*)            FROM bids b WHERE b.listing_id = l.id) AS bid_count
+    FROM listings l
+    JOIN users u ON u.id = l.seller_id
+"""
+
+
+@app.get("/api/listings")
+def api_listings():
     page = max(1, request.args.get("page", 1, type=int))
     limit = max(1, min(request.args.get("limit", 12, type=int), 50))
     category = request.args.get("category", "all")
@@ -270,19 +309,17 @@ def api_products():
     cur = conn.cursor(dictionary=True)
 
     if category != "all":
-        cur.execute("SELECT COUNT(*) AS total FROM products WHERE category = %s", (category,))
+        cur.execute("SELECT COUNT(*) AS total FROM listings WHERE category = %s", (category,))
         total = cur.fetchone()["total"]
         cur.execute(
-            "SELECT id, name, category, price_cents, rating, reviews, bid_count, time_left_hours "
-            "FROM products WHERE category = %s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            LISTINGS_SELECT + " WHERE l.category = %s ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
             (category, limit, offset),
         )
     else:
-        cur.execute("SELECT COUNT(*) AS total FROM products")
+        cur.execute("SELECT COUNT(*) AS total FROM listings")
         total = cur.fetchone()["total"]
         cur.execute(
-            "SELECT id, name, category, price_cents, rating, reviews, bid_count, time_left_hours "
-            "FROM products ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            LISTINGS_SELECT + " ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
             (limit, offset),
         )
 
@@ -296,109 +333,193 @@ def api_products():
             "limit": limit,
             "category": category,
             "total": total,
-            "products": [product_row_to_json(row) for row in rows],
+            "listings": [listing_row_to_json(row) for row in rows],
         }
     )
 
 
-@app.get("/api/products/<int:product_id>")
-def api_product_detail(product_id):
+@app.get("/api/listings/<int:listing_id>")
+def api_listing_detail(listing_id):
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
+    cur.execute(LISTINGS_SELECT + " WHERE l.id = %s", (listing_id,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Listing not found"}), 404
+
+    result = listing_row_to_json(row)
+
+    # Bid history (newest first)
     cur.execute(
-        "SELECT id, name, category, price_cents, rating, reviews, bid_count, time_left_hours "
-        "FROM products WHERE id = %s",
-        (product_id,),
+        """
+        SELECT b.amount_cents, b.created_at, u.name AS bidder_name
+        FROM bids b
+        JOIN users u ON u.id = b.bidder_id
+        WHERE b.listing_id = %s
+        ORDER BY b.amount_cents DESC, b.created_at DESC
+        """,
+        (listing_id,),
     )
-    row = cur.fetchone()
+    bids = cur.fetchall()
+    result["bids"] = [
+        {
+            "bidder_name": b["bidder_name"],
+            "amount": round(b["amount_cents"] / 100, 2),
+            "created_at": b["created_at"].isoformat(),
+        }
+        for b in bids
+    ]
+
+    # If the current user is logged in, provide extra context
+    user_id = session.get("user_id")
+    if user_id:
+        result["user_is_seller"] = row["seller_id"] == user_id
+        cur.execute(
+            "SELECT MAX(amount_cents) AS max_bid FROM bids WHERE listing_id = %s AND bidder_id = %s",
+            (listing_id, user_id),
+        )
+        user_bid_row = cur.fetchone()
+        result["user_highest_bid"] = (
+            round(user_bid_row["max_bid"] / 100, 2) if user_bid_row and user_bid_row["max_bid"] else None
+        )
+    else:
+        result["user_is_seller"] = False
+        result["user_highest_bid"] = None
+
     cur.close()
     conn.close()
-
-    if not row:
-        return jsonify({"error": "Product not found"}), 404
-    return jsonify(product_row_to_json(row))
+    return jsonify(result)
 
 
-@app.get("/api/products/<int:product_id>/image")
-def api_product_image(product_id):
+@app.get("/api/listings/<int:listing_id>/image")
+def api_listing_image(listing_id):
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id FROM products WHERE id = %s", (product_id,))
+    cur.execute("SELECT id FROM listings WHERE id = %s", (listing_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
 
     if not row:
-        return jsonify({"error": "Product not found"}), 404
+        return jsonify({"error": "Listing not found"}), 404
     if NUM_IMAGES == 0:
         return jsonify({"error": "No images available"}), 404
 
-    image_index = ((product_id - 1) % NUM_IMAGES) + 1
+    image_index = ((listing_id - 1) % NUM_IMAGES) + 1
     return send_from_directory(IMAGE_DIR, f"product_{image_index}.jpg")
 
 
-@app.get("/api/cart")
-def api_cart():
-    guest_key = get_guest_key()
-    cart_id = get_or_create_cart_id(guest_key)
+@app.post("/api/listings")
+def api_create_listing():
+    """Create a new auction listing (login required)."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    description = (data.get("description") or "").strip()
+    category = data.get("category") or ""
+    starting_price = data.get("starting_price")
+    duration_hours = data.get("duration_hours", 24)
+
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    if category not in CATEGORY_LABELS:
+        return jsonify({"error": "Invalid category"}), 400
+    try:
+        starting_price = float(starting_price)
+        if starting_price < 0.01:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"error": "Starting price must be at least $0.01"}), 400
+    try:
+        duration_hours = int(duration_hours)
+        if duration_hours < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"error": "Duration must be at least 1 hour"}), 400
+
+    starting_price_cents = round(starting_price * 100)
+    ends_at = datetime.now() + timedelta(hours=duration_hours)
 
     conn = get_conn()
-    cur = conn.cursor(dictionary=True)
+    cur = conn.cursor()
     cur.execute(
-        """
-        SELECT ci.product_id, ci.quantity, p.name, p.price_cents
-        FROM cart_items ci
-        JOIN products p ON p.id = ci.product_id
-        WHERE ci.cart_id = %s
-        ORDER BY p.name
-        """,
-        (cart_id,),
+        "INSERT INTO listings (seller_id, title, description, category, starting_price_cents, ends_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (user_id, title, description, category, starting_price_cents, ends_at),
     )
-    items = cur.fetchall()
+    conn.commit()
+    listing_id = cur.lastrowid
     cur.close()
     conn.close()
 
-    total_items = sum(item["quantity"] for item in items)
-    total_price = round(sum((item["price_cents"] / 100) * item["quantity"] for item in items), 2)
-    cart = [
-        {
-            "product_id": item["product_id"],
-            "name": item["name"],
-            "price": round(item["price_cents"] / 100, 2),
-            "quantity": item["quantity"],
-        }
-        for item in items
-    ]
-    return jsonify({"total_items": total_items, "total_price": total_price, "cart": cart})
+    return jsonify({"ok": True, "listing_id": listing_id}), 201
 
 
-@app.post("/api/cart")
-def api_cart_add():
-    guest_key = get_guest_key()
-    cart_id = get_or_create_cart_id(guest_key)
+@app.post("/api/listings/<int:listing_id>/bid")
+def api_place_bid(listing_id):
+    """Place a bid on a listing (login required)."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Login required"}), 401
+
     data = request.get_json(silent=True) or {}
-    product_id = int(data.get("product_id", 0))
+    try:
+        amount = float(data.get("amount", 0))
+        if amount <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid bid amount"}), 400
 
-    if product_id <= 0:
-        return jsonify({"error": "Missing product_id"}), 400
+    amount_cents = round(amount * 100)
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id FROM products WHERE id = %s", (product_id,))
-    product = cur.fetchone()
-    if not product:
+
+    # Fetch listing
+    cur.execute("SELECT id, seller_id, starting_price_cents, ends_at FROM listings WHERE id = %s", (listing_id,))
+    listing = cur.fetchone()
+    if not listing:
         cur.close()
         conn.close()
-        return jsonify({"error": "Product not found"}), 404
+        return jsonify({"error": "Listing not found"}), 404
+
+    # Cannot bid on own listing
+    if listing["seller_id"] == user_id:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "You cannot bid on your own listing"}), 403
+
+    # Cannot bid on ended auction
+    if listing["ends_at"] < datetime.now():
+        cur.close()
+        conn.close()
+        return jsonify({"error": "This auction has ended"}), 400
+
+    # Must be >= starting price
+    if amount_cents < listing["starting_price_cents"]:
+        cur.close()
+        conn.close()
+        return jsonify({"error": f"Bid must be at least ${listing['starting_price_cents'] / 100:.2f}"}), 400
+
+    # Must be higher than current highest bid
+    cur.execute("SELECT MAX(amount_cents) AS max_bid FROM bids WHERE listing_id = %s", (listing_id,))
+    max_row = cur.fetchone()
+    current_max = max_row["max_bid"] if max_row and max_row["max_bid"] else 0
+    if amount_cents <= current_max:
+        cur.close()
+        conn.close()
+        return jsonify({"error": f"Bid must be higher than ${current_max / 100:.2f}"}), 400
 
     cur2 = conn.cursor()
     cur2.execute(
-        """
-        INSERT INTO cart_items (cart_id, product_id, quantity)
-        VALUES (%s, %s, 1)
-        ON DUPLICATE KEY UPDATE quantity = quantity + 1
-        """,
-        (cart_id, product_id),
+        "INSERT INTO bids (listing_id, bidder_id, amount_cents) VALUES (%s, %s, %s)",
+        (listing_id, user_id, amount_cents),
     )
     conn.commit()
 
@@ -406,28 +527,77 @@ def api_cart_add():
     cur.close()
     conn.close()
 
-    cart_data = api_cart().get_json()
-    cart_data["message"] = "Added to bid list"
-    return jsonify(cart_data)
+    return jsonify({"ok": True, "amount": amount, "listing_id": listing_id})
 
 
-@app.delete("/api/cart/<int:product_id>")
-def api_cart_remove(product_id):
-    guest_key = get_guest_key()
-    cart_id = get_or_create_cart_id(guest_key)
+# ─── Profile Data API ─────────────────────────────────
+
+
+@app.get("/api/my/listings")
+def api_my_listings():
+    """Get all listings created by the current user."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Login required"}), 401
 
     conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM cart_items WHERE cart_id = %s AND product_id = %s", (cart_id, product_id))
-    conn.commit()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        LISTINGS_SELECT + " WHERE l.seller_id = %s ORDER BY l.created_at DESC",
+        (user_id,),
+    )
+    rows = cur.fetchall()
     cur.close()
     conn.close()
 
-    return jsonify(api_cart().get_json())
+    return jsonify({"listings": [listing_row_to_json(r) for r in rows]})
+
+
+@app.get("/api/my/bids")
+def api_my_bids():
+    """Get all listings the current user has bid on, with their highest bid."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Login required"}), 401
+
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        """
+        SELECT l.id, l.title, l.category, l.starting_price_cents, l.ends_at,
+               l.seller_id, u.name AS seller_name,
+               MAX(my.amount_cents) AS my_highest_cents,
+               (SELECT MAX(b2.amount_cents) FROM bids b2 WHERE b2.listing_id = l.id) AS current_bid_cents,
+               (SELECT COUNT(*)             FROM bids b2 WHERE b2.listing_id = l.id) AS bid_count
+        FROM bids my
+        JOIN listings l ON l.id = my.listing_id
+        JOIN users u ON u.id = l.seller_id
+        WHERE my.bidder_id = %s
+        GROUP BY l.id
+        ORDER BY l.ends_at ASC
+        """,
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    results = []
+    for r in rows:
+        item = listing_row_to_json(r)
+        item["my_highest_bid"] = round(r["my_highest_cents"] / 100, 2)
+        winning = r["current_bid_cents"] == r["my_highest_cents"]
+        item["is_winning"] = winning
+        results.append(item)
+
+    return jsonify({"bids": results})
+
+
+# ─── Main ─────────────────────────────────────────────
 
 
 if __name__ == "__main__":
     print("CampusBid API running at http://127.0.0.1:5005")
     print("Auction site:  http://127.0.0.1:5005/")
-    print("Listings:      http://127.0.0.1:5005/api/products?page=1&limit=12")
+    print("Listings API:  http://127.0.0.1:5005/api/listings?page=1&limit=12")
     app.run(debug=True, port=5005)
