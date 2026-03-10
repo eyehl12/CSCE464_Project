@@ -1,5 +1,5 @@
 """
-CampusBid Auction — Flask Application
+UNListings Auction — Flask Application
 =====================================
 Run: python app.py
 Then visit http://127.0.0.1:5005
@@ -298,30 +298,48 @@ LISTINGS_SELECT = """
 """
 
 
+def build_listing_filter_clause(category, search_query):
+    clauses = []
+    params = []
+
+    if category != "all":
+        clauses.append("l.category = %s")
+        params.append(category)
+
+    if search_query:
+        like_term = f"%{search_query}%"
+        clauses.append("(l.title LIKE %s OR l.description LIKE %s OR u.name LIKE %s)")
+        params.extend([like_term, like_term, like_term])
+
+    if not clauses:
+        return "", params
+
+    return " WHERE " + " AND ".join(clauses), params
+
+
 @app.get("/api/listings")
 def api_listings():
     page = max(1, request.args.get("page", 1, type=int))
     limit = max(1, min(request.args.get("limit", 12, type=int), 50))
     category = request.args.get("category", "all")
+    search_query = (request.args.get("q") or "").strip()
     offset = (page - 1) * limit
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
 
-    if category != "all":
-        cur.execute("SELECT COUNT(*) AS total FROM listings WHERE category = %s", (category,))
-        total = cur.fetchone()["total"]
-        cur.execute(
-            LISTINGS_SELECT + " WHERE l.category = %s ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
-            (category, limit, offset),
-        )
-    else:
-        cur.execute("SELECT COUNT(*) AS total FROM listings")
-        total = cur.fetchone()["total"]
-        cur.execute(
-            LISTINGS_SELECT + " ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
-            (limit, offset),
-        )
+    where_clause, filter_params = build_listing_filter_clause(category, search_query)
+
+    cur.execute(
+        "SELECT COUNT(*) AS total FROM listings l JOIN users u ON u.id = l.seller_id" + where_clause,
+        tuple(filter_params),
+    )
+    total = cur.fetchone()["total"]
+
+    cur.execute(
+        LISTINGS_SELECT + where_clause + " ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
+        tuple(filter_params + [limit, offset]),
+    )
 
     rows = cur.fetchall()
     cur.close()
@@ -332,6 +350,7 @@ def api_listings():
             "page": page,
             "limit": limit,
             "category": category,
+            "query": search_query,
             "total": total,
             "listings": [listing_row_to_json(row) for row in rows],
         }
@@ -597,7 +616,7 @@ def api_my_bids():
 
 
 if __name__ == "__main__":
-    print("CampusBid API running at http://127.0.0.1:5005")
+    print("UNListings API running at http://127.0.0.1:5005")
     print("Auction site:  http://127.0.0.1:5005/")
     print("Listings API:  http://127.0.0.1:5005/api/listings?page=1&limit=12")
     app.run(debug=True, port=5005)

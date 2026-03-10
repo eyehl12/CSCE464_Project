@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CampusBid | University Auction</title>
+    <title>UNListings | University Auction</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
@@ -66,12 +66,12 @@
     <header class="campus-red text-white sticky top-0 z-50 shadow-lg">
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
             <a href="/" class="text-2xl font-extrabold border border-transparent hover:border-white p-1 transition-all no-underline text-white">
-                CampusBid<span class="text-rose-200">.</span>
+                UNListings
             </a>
 
             <div class="flex-grow hidden md:flex items-center bg-white rounded-md overflow-hidden">
                 <div class="px-4 py-2 text-sm text-gray-500">University Auction</div>
-                <input type="text" class="flex-grow px-4 py-2 text-black focus:outline-none" placeholder="Browse campus auctions" disabled>
+                <input id="listing-search" type="search" class="flex-grow px-4 py-2 text-black focus:outline-none" placeholder="Search listings, descriptions, or sellers">
             </div>
 
             <div class="flex items-center gap-3 text-sm font-semibold">
@@ -90,7 +90,7 @@
     <div class="relative">
         <div class="h-52 md:h-80 bg-gradient-to-b from-rose-700 via-rose-600 to-rose-200 flex items-center justify-center text-center px-4">
             <div>
-                <h1 class="text-3xl md:text-5xl font-black text-white drop-shadow-lg">CampusBid Live Auctions</h1>
+                <h1 class="text-3xl md:text-5xl font-black text-white drop-shadow-lg">UNListings Live Auctions</h1>
                 <p class="text-rose-50 mt-3 font-medium">Educational items, university merch, dorm essentials, and a general auction feed.</p>
             </div>
         </div>
@@ -127,7 +127,7 @@
     </main>
 
     <footer class="bg-rose-950 text-rose-100 py-12 text-center">
-        <p class="text-sm opacity-75">&copy; 2026 CampusBid Lab | University Auction Prototype</p>
+        <p class="text-sm opacity-75">&copy; 2026 UNListings | University Auction Prototype</p>
     </footer>
 
     <script>
@@ -136,12 +136,15 @@
         let currentPage = 1;
         let totalListings = 0;
         let currentCategory = "all";
+        let currentSearch = "";
+        let searchTimer = null;
 
         const grid = document.getElementById('listing-grid');
         const loadBtn = document.getElementById('load-more-btn');
         const loader = document.getElementById('loading-indicator');
         const categoryFilters = document.getElementById('category-filters');
         const logoutBtn = document.getElementById('logout-btn');
+        const searchInput = document.getElementById('listing-search');
 
         // ── Helpers ──
 
@@ -159,11 +162,21 @@
 
         // ── Fetch ──
 
-        function fetchBatch(page, category) {
+        function fetchBatch(page, category, search) {
             loader.classList.add('active');
             loadBtn.classList.add('hidden');
 
-            return fetch(`/api/listings?page=${page}&limit=${LISTINGS_PER_PAGE}&category=${category}`)
+            const params = new URLSearchParams({
+                page: String(page),
+                limit: String(LISTINGS_PER_PAGE),
+                category: category,
+            });
+
+            if (search) {
+                params.set('q', search);
+            }
+
+            return fetch(`/api/listings?${params.toString()}`)
                 .then(function(response) {
                     if (!response.ok) throw new Error("API error: " + response.status);
                     return response.json();
@@ -214,12 +227,31 @@
             });
         }
 
+        function renderEmptyState() {
+            const message = currentSearch
+                ? `No listings matched "${currentSearch}".`
+                : 'No listings found in this category.';
+
+            grid.innerHTML = `
+                <div class="col-span-full rounded-xl border border-dashed border-rose-300 bg-white/90 px-6 py-10 text-center text-gray-600 shadow-sm">
+                    <div class="text-lg font-semibold text-rose-700">No Results</div>
+                    <p class="mt-2 text-sm">${message}</p>
+                </div>
+            `;
+        }
+
         // ── Load / Paginate ──
 
         async function loadNextBatch() {
             try {
-                const listings = await fetchBatch(currentPage, currentCategory);
-                renderListings(listings);
+                const listings = await fetchBatch(currentPage, currentCategory, currentSearch);
+
+                if (currentPage === 1 && listings.length === 0) {
+                    renderEmptyState();
+                } else {
+                    renderListings(listings);
+                }
+
                 currentPage++;
 
                 if ((currentPage - 1) * LISTINGS_PER_PAGE >= totalListings) {
@@ -236,8 +268,9 @@
             }
         }
 
-        function resetAndLoad(category) {
+        function resetAndLoad(category, search) {
             currentCategory = category;
+            currentSearch = search;
             currentPage = 1;
             totalListings = 0;
             grid.innerHTML = "";
@@ -257,10 +290,24 @@
             });
             button.classList.add('active');
 
-            resetAndLoad(button.dataset.category);
+            resetAndLoad(button.dataset.category, currentSearch);
         });
 
         loadBtn.addEventListener('click', loadNextBatch);
+
+        if (searchInput) {
+            searchInput.addEventListener('input', function(event) {
+                const nextSearch = event.target.value.trim();
+
+                if (searchTimer) {
+                    clearTimeout(searchTimer);
+                }
+
+                searchTimer = setTimeout(function() {
+                    resetAndLoad(currentCategory, nextSearch);
+                }, 250);
+            });
+        }
 
         if (logoutBtn) {
             logoutBtn.addEventListener('click', async function() {
@@ -279,7 +326,7 @@
         }, 1000);
 
         // ── Init ──
-        resetAndLoad('all');
+        resetAndLoad('all', '');
     </script>
 </body>
 </html>

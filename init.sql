@@ -1,6 +1,6 @@
-DROP DATABASE IF EXISTS campusbid;
-CREATE DATABASE campusbid;
-USE campusbid;
+DROP DATABASE IF EXISTS unlistings;
+CREATE DATABASE unlistings;
+USE unlistings;
 
 -- ═══════════════════════════════════════════════════════
 -- Users
