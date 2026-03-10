@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBid | University Auction</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
+        :root {
+            --campus-red: #9f1239;
+            --campus-red-dark: #7f1d1d;
+            --campus-cream: #fef2f2;
+            --campus-ink: #1f2937;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at top, #ffe4e6 0%, #fff7ed 35%, #ffffff 100%);
+            color: var(--campus-ink);
+        }
+
+        .campus-red { background-color: var(--campus-red); }
+        .campus-red-hover { background-color: var(--campus-red-dark); }
+        .campus-red-text { color: var(--campus-red); }
+
+        .listing-card {
+            background: white;
+            border: 1px solid #fecdd3;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .listing-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 14px 18px -12px rgba(127, 29, 29, 0.45);
+        }
+
+        .category-pill.active {
+            background-color: var(--campus-red);
+            color: white;
+            border-color: var(--campus-red);
+        }
+
+        #loading-indicator {
+            display: none;
+        }
+
+        #loading-indicator.active {
+            display: flex;
+        }
+
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="campus-red text-white sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
+            <div class="text-2xl font-extrabold border border-transparent hover:border-white p-1 cursor-pointer transition-all">
+                CampusBid<span class="text-rose-200">.</span>
+            </div>
+
+            <div class="flex-grow hidden md:flex items-center bg-white rounded-md overflow-hidden">
+                <div class="px-4 py-2 text-sm text-gray-500">University Auction</div>
+                <input type="text" class="flex-grow px-4 py-2 text-black focus:outline-none" placeholder="Browse campus deals, merch, and essentials" disabled>
+            </div>
+
+            <div class="flex items-center gap-4 text-sm font-semibold">
+                <div class="hidden md:block">Live Lots</div>
+                <div class="cursor-pointer border border-transparent hover:border-white px-2 py-1 flex items-center gap-1 relative rounded">
+                    <span>Bid List</span>
+                    <span id="cart-badge" class="absolute -top-1 -right-2 bg-rose-300 text-rose-900 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center hidden">0</span>
+                </div>
+                <button id="clear-cart" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Clear</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="relative">
+        <div class="h-52 md:h-80 bg-gradient-to-b from-rose-700 via-rose-600 to-rose-200 flex items-center justify-center text-center px-4">
+            <div>
+                <h1 class="text-3xl md:text-5xl font-black text-white drop-shadow-lg">CampusBid Live Auctions</h1>
+                <p class="text-rose-50 mt-3 font-medium">Educational items, university merch, dorm essentials, and a general auction feed.</p>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 -mt-8 md:-mt-24 pb-20 relative z-10">
+        <section class="bg-white/95 border border-rose-200 rounded-xl shadow-md p-4 md:p-5 mb-6">
+            <h2 class="text-sm font-bold uppercase tracking-wide text-rose-700 mb-3">Auction Sections</h2>
+            <div id="category-filters" class="flex flex-wrap gap-2">
+                <button class="category-pill active border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="all">All Lots</button>
+                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="educational-items">Educational Items</button>
+                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="university-merch">University Merch</button>
+                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="dorm-essentials">Dorm Essentials</button>
+                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="general-auction">General Auction</button>
+            </div>
+        </section>
+
+        <div id="product-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        </div>
+
+        <div class="mt-12 flex flex-col items-center justify-center">
+            <div id="loading-indicator" class="items-center gap-2 mb-4 text-rose-700 font-semibold animate-pulse">
+                <svg class="animate-spin h-5 w-5 text-rose-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Loading auction listings...
+            </div>
+
+            <button id="load-more-btn" class="bg-white border border-rose-300 px-10 py-3 rounded-full shadow-sm hover:bg-rose-50 font-bold transition-all text-sm uppercase tracking-wide">
+                Load more...
+            </button>
+        </div>
+    </main>
+
+    <footer class="bg-rose-950 text-rose-100 py-12 text-center">
+        <p class="text-sm opacity-75">&copy; 2026 CampusBid Lab | University Auction Prototype</p>
+    </footer>
+
+    <script>
+        const API_BASE = "";
+        const PRODUCTS_PER_PAGE = 12;
+
+        let currentPage = 1;
+        let totalProducts = 0;
+        let currentCategory = "all";
+
+        const grid = document.getElementById('product-grid');
+        const loadBtn = document.getElementById('load-more-btn');
+        const loader = document.getElementById('loading-indicator');
+        const cartBadge = document.getElementById('cart-badge');
+        const cartClear = document.getElementById('clear-cart');
+        const categoryFilters = document.getElementById('category-filters');
+
+        function fetchBatch(page, category) {
+            loader.classList.add('active');
+            loadBtn.classList.add('hidden');
+
+            return fetch(`${API_BASE}/api/products?page=${page}&limit=${PRODUCTS_PER_PAGE}&category=${category}`)
+                .then(function(response) {
+                    if (!response.ok) throw new Error("API error: " + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    totalProducts = data.total;
+                    return data.products;
+                });
+        }
+
+        function renderStars(rating) {
+            const full = Math.floor(rating);
+            const half = rating - full >= 0.5 ? 1 : 0;
+            const empty = 5 - full - half;
+            return "★".repeat(full) + (half ? "½" : "") + "☆".repeat(empty);
+        }
+
+        function renderProducts(products) {
+            products.forEach(function(item) {
+                const dollars = Math.floor(item.price);
+                const cents = (item.price % 1).toFixed(2).substring(2);
+
+                const card = document.createElement('div');
+                card.className = "listing-card p-4 rounded-lg shadow-sm flex flex-col";
+                card.innerHTML = `
+                    <div class="h-44 mb-4 bg-rose-50 flex items-center justify-center overflow-hidden rounded">
+                        <img src="${item.image_url}" alt="${item.name}" class="w-full h-full object-cover" loading="lazy">
+                    </div>
+                    <div class="text-xs font-bold uppercase tracking-wide text-rose-700 mb-1">${item.category_label}</div>
+                    <h3 class="text-sm font-semibold text-gray-800 line-clamp-2 mb-2 h-10">${item.name}</h3>
+                    <div class="flex items-center gap-1 mb-1">
+                        <span class="text-amber-500 text-xs">${renderStars(item.rating)}</span>
+                        <span class="text-xs text-gray-500">${item.rating}</span>
+                        <span class="text-xs text-gray-500">(${item.reviews.toLocaleString()})</span>
+                    </div>
+                    <div class="text-xs text-rose-700 font-semibold mb-2">${item.bid_count} bids • ${item.time_left}</div>
+                    <div class="text-2xl font-bold mb-4">
+                        <span class="text-sm align-top">$</span>${dollars}<span class="text-sm align-top">${cents}</span>
+                        <span class="text-xs text-gray-500 ml-1">current bid</span>
+                    </div>
+                    <button data-product-id="${item.id}" onclick="addToCart(this)" class="mt-auto campus-red hover:campus-red-hover text-white py-1.5 rounded-full text-xs font-bold shadow-sm transition-all active:scale-95">
+                        Place Proxy Bid
+                    </button>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function loadNextBatch() {
+            try {
+                const products = await fetchBatch(currentPage, currentCategory);
+                renderProducts(products);
+                currentPage++;
+
+                if ((currentPage - 1) * PRODUCTS_PER_PAGE >= totalProducts) {
+                    loadBtn.classList.add('hidden');
+                } else {
+                    loadBtn.classList.remove('hidden');
+                }
+            } catch (err) {
+                console.error("API Error:", err);
+                loadBtn.innerText = "Error Loading. Try Again.";
+                loadBtn.classList.remove('hidden');
+            } finally {
+                loader.classList.remove('active');
+            }
+        }
+
+        async function clearCart() {
+            const response = await fetch("/api/cart");
+            const data = await response.json();
+
+            for (const item of data.cart) {
+                await fetch(`/api/cart/${item.product_id}`, { method: "DELETE" });
+            }
+
+            cartBadge.innerText = "0";
+            cartBadge.classList.add('hidden');
+        }
+
+        function addToCart(btn) {
+            const productId = Number(btn.dataset.productId);
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "Bidding...";
+
+            fetch(`${API_BASE}/api/cart`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ product_id: productId }),
+            })
+                .then(function(response) {
+                    if (!response.ok) throw new Error("Cart API error: " + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    cartBadge.innerText = data.total_items;
+                    cartBadge.classList.remove('hidden');
+
+                    btn.innerText = "Bid Added";
+                    setTimeout(function() {
+                        btn.innerText = originalText;
+                        btn.disabled = false;
+                    }, 1000);
+                })
+                .catch(function(err) {
+                    console.error("Cart Error:", err);
+                    btn.innerText = "Error";
+                    setTimeout(function() {
+                        btn.innerText = originalText;
+                        btn.disabled = false;
+                    }, 1500);
+                });
+        }
+
+        function resetAndLoad(category) {
+            currentCategory = category;
+            currentPage = 1;
+            totalProducts = 0;
+            grid.innerHTML = "";
+            loadBtn.innerText = "Load more...";
+            loadBtn.classList.remove('hidden');
+            loadNextBatch();
+        }
+
+        categoryFilters.addEventListener('click', function(event) {
+            const button = event.target.closest('button[data-category]');
+            if (!button) return;
+
+            categoryFilters.querySelectorAll('.category-pill').forEach(function(pill) {
+                pill.classList.remove('active');
+            });
+            button.classList.add('active');
+
+            resetAndLoad(button.dataset.category);
+        });
+
+        loadBtn.addEventListener('click', loadNextBatch);
+        cartClear.addEventListener('click', clearCart);
+
+        resetAndLoad('all');
+    </script>
+</body>
+</html>
