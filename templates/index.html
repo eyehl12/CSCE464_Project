@@ -73,11 +73,30 @@
 
             <div class="flex items-center gap-4 text-sm font-semibold">
                 <div class="hidden md:block">Live Lots</div>
-                <div class="cursor-pointer border border-transparent hover:border-white px-2 py-1 flex items-center gap-1 relative rounded">
+                <button id="bid-list-toggle" type="button" class="cursor-pointer border border-transparent hover:border-white px-2 py-1 flex items-center gap-1 relative rounded">
                     <span>Bid List</span>
                     <span id="cart-badge" class="absolute -top-1 -right-2 bg-rose-300 text-rose-900 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center hidden">0</span>
+                </button>
+                <button id="clear-cart" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Clear Bids</button>
+                {% if current_user %}
+                    <a href="/profile" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Hi, {{ current_user.name }}</a>
+                    <button id="logout-btn" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Logout</button>
+                {% else %}
+                    <a href="/login" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Login</a>
+                    <a href="/register" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Register</a>
+                {% endif %}
+            </div>
+        </div>
+        <div id="bid-list-panel" class="hidden border-t border-rose-300/30 bg-rose-950/95 px-4 py-4">
+            <div class="mx-auto flex max-w-7xl flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-rose-100">Current Bid List</h2>
+                    <span id="bid-total" class="text-xs text-rose-200">0 active bids</span>
                 </div>
-                <button id="clear-cart" class="text-xs px-3 py-1 rounded border border-rose-200 hover:bg-rose-800">Clear</button>
+                <div id="bid-empty" class="rounded border border-dashed border-rose-300/40 px-4 py-3 text-sm text-rose-100/80">
+                    No bids added yet.
+                </div>
+                <div id="bid-items" class="hidden grid gap-2 md:grid-cols-2 xl:grid-cols-3"></div>
             </div>
         </div>
     </header>
@@ -138,7 +157,13 @@
         const loader = document.getElementById('loading-indicator');
         const cartBadge = document.getElementById('cart-badge');
         const cartClear = document.getElementById('clear-cart');
+        const bidListToggle = document.getElementById('bid-list-toggle');
+        const bidListPanel = document.getElementById('bid-list-panel');
+        const bidItems = document.getElementById('bid-items');
+        const bidEmpty = document.getElementById('bid-empty');
+        const bidTotal = document.getElementById('bid-total');
         const categoryFilters = document.getElementById('category-filters');
+        const logoutBtn = document.getElementById('logout-btn');
 
         function fetchBatch(page, category) {
             loader.classList.add('active');
@@ -213,16 +238,54 @@
             }
         }
 
-        async function clearCart() {
-            const response = await fetch("/api/cart");
-            const data = await response.json();
+        function renderBidList(data) {
+            const items = data.cart || [];
+            const totalItems = data.total_items || 0;
 
-            for (const item of data.cart) {
-                await fetch(`/api/cart/${item.product_id}`, { method: "DELETE" });
+            cartBadge.innerText = String(totalItems);
+            cartBadge.classList.toggle('hidden', totalItems === 0);
+            bidTotal.innerText = `${totalItems} active ${totalItems === 1 ? 'bid' : 'bids'}`;
+
+            if (items.length === 0) {
+                bidEmpty.classList.remove('hidden');
+                bidItems.classList.add('hidden');
+                bidItems.innerHTML = '';
+                return;
             }
 
-            cartBadge.innerText = "0";
-            cartBadge.classList.add('hidden');
+            bidEmpty.classList.add('hidden');
+            bidItems.classList.remove('hidden');
+            bidItems.innerHTML = items.map(function(item) {
+                return `
+                    <div class="rounded-lg border border-rose-300/30 bg-white/10 px-4 py-3">
+                        <div>
+                            <div class="text-sm font-semibold text-white">${item.name}</div>
+                            <div class="mt-1 text-xs text-rose-100/80">Current bid: $${item.price.toFixed(2)}</div>
+                            <div class="text-xs text-rose-100/80">Proxy bids queued: ${item.quantity}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function refreshBidList() {
+            const response = await fetch('/api/cart');
+            if (!response.ok) {
+                throw new Error('Unable to load bid list');
+            }
+            const data = await response.json();
+            renderBidList(data);
+            return data;
+        }
+
+        async function clearCart() {
+            const data = await refreshBidList();
+
+            for (const item of data.cart) {
+                await fetch(`/api/cart/${item.product_id}`, { method: 'DELETE' });
+            }
+
+            await refreshBidList();
         }
 
         function addToCart(btn) {
@@ -241,8 +304,7 @@
                     return response.json();
                 })
                 .then(function(data) {
-                    cartBadge.innerText = data.total_items;
-                    cartBadge.classList.remove('hidden');
+                    renderBidList(data);
 
                     btn.innerText = "Bid Added";
                     setTimeout(function() {
@@ -284,7 +346,20 @@
 
         loadBtn.addEventListener('click', loadNextBatch);
         cartClear.addEventListener('click', clearCart);
+        bidListToggle.addEventListener('click', function() {
+            bidListPanel.classList.toggle('hidden');
+        });
 
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async function() {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/';
+            });
+        }
+
+        refreshBidList().catch(function(err) {
+            console.error('Bid list load failed:', err);
+        });
         resetAndLoad('all');
     </script>
 </body>

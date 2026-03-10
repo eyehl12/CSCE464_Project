@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBid Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-red-950 via-red-900 to-stone-950 text-white">
+    <div class="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-6 py-12">
+        <div class="w-full max-w-md rounded-3xl border border-red-400/20 bg-white/10 p-8 shadow-2xl backdrop-blur">
+            <a href="/" class="text-sm text-red-200 hover:text-white">Back to CampusBid</a>
+            <h1 class="mt-4 text-3xl font-bold">Sign In</h1>
+            <p class="mt-2 text-sm text-red-100">Access your account to manage your bids and profile.</p>
+
+            <form id="login-form" class="mt-8 space-y-4">
+                <div>
+                    <label for="email" class="mb-2 block text-sm font-medium">Email</label>
+                    <input id="email" type="email" required class="w-full rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none ring-0 placeholder:text-red-100/50 focus:border-red-300" placeholder="student@campus.edu">
+                </div>
+                <div>
+                    <label for="password" class="mb-2 block text-sm font-medium">Password</label>
+                    <input id="password" type="password" required class="w-full rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none ring-0 placeholder:text-red-100/50 focus:border-red-300" placeholder="Enter your password">
+                </div>
+                <p id="message" class="hidden rounded-2xl px-4 py-3 text-sm"></p>
+                <button type="submit" class="w-full rounded-2xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-400">Login</button>
+            </form>
+
+            <p class="mt-6 text-sm text-red-100">
+                Need an account?
+                <a href="/register" class="font-semibold text-white underline underline-offset-4">Register</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('login-form');
+        const message = document.getElementById('message');
+
+        function showMessage(text, isError = false) {
+            message.textContent = text;
+            message.className = `rounded-2xl px-4 py-3 text-sm ${isError ? 'bg-red-500/20 text-red-100' : 'bg-emerald-500/20 text-emerald-100'}`;
+            message.classList.remove('hidden');
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            message.classList.add('hidden');
+
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: document.getElementById('email').value,
+                    password: document.getElementById('password').value,
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                showMessage(data.error || 'Login failed', true);
+                return;
+            }
+
+            showMessage('Login successful. Redirecting...');
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>

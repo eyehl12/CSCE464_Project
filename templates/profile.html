@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CampusBid Profile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-b from-red-950 via-red-900 to-stone-950 text-white">
+    <div class="mx-auto max-w-5xl px-6 py-12">
+        <div class="flex items-center justify-between gap-4">
+            <div>
+                <a href="/" class="text-sm text-red-200 hover:text-white">Back to CampusBid</a>
+                <h1 class="mt-4 text-4xl font-bold">Profile</h1>
+                <p class="mt-2 text-red-100">Manage your account credentials.</p>
+            </div>
+        </div>
+
+        <div class="mt-10 grid gap-6 md:grid-cols-2">
+            <section class="rounded-3xl border border-red-400/20 bg-white/10 p-8 shadow-2xl backdrop-blur">
+                <h2 class="text-xl font-semibold">Account Details</h2>
+                <dl class="mt-6 space-y-4 text-sm">
+                    <div>
+                        <dt class="text-red-200">Name</dt>
+                        <dd class="mt-1 text-lg font-medium text-white">{{ current_user.name }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-red-200">Email</dt>
+                        <dd class="mt-1 text-lg font-medium text-white">{{ current_user.email }}</dd>
+                    </div>
+                </dl>
+            </section>
+
+            <section class="rounded-3xl border border-red-400/20 bg-white/10 p-8 shadow-2xl backdrop-blur">
+                <h2 class="text-xl font-semibold">Change Password</h2>
+                <form id="password-form" class="mt-6 space-y-4">
+                    <input id="old_password" type="password" required class="w-full rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-red-100/50 focus:border-red-300" placeholder="Current password">
+                    <input id="new_password" type="password" required minlength="6" class="w-full rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-red-100/50 focus:border-red-300" placeholder="New password">
+                    <p id="password-message" class="hidden rounded-2xl px-4 py-3 text-sm"></p>
+                    <button type="submit" class="w-full rounded-2xl bg-red-500 px-4 py-3 font-semibold text-white transition hover:bg-red-400">Update Password</button>
+                </form>
+            </section>
+
+            <section class="rounded-3xl border border-red-400/20 bg-black/20 p-8 shadow-2xl md:col-span-2">
+                <h2 class="text-xl font-semibold text-red-100">Delete Account</h2>
+                <p class="mt-2 text-sm text-red-200">This permanently removes your account. Enter your password to confirm.</p>
+                <form id="delete-form" class="mt-6 flex flex-col gap-4 md:flex-row">
+                    <input id="delete_password" type="password" required class="flex-1 rounded-2xl border border-red-200/20 bg-black/20 px-4 py-3 text-white outline-none placeholder:text-red-100/50 focus:border-red-300" placeholder="Password confirmation">
+                    <button type="submit" class="rounded-2xl bg-white px-6 py-3 font-semibold text-red-700 transition hover:bg-red-100">Delete Account</button>
+                </form>
+                <p id="delete-message" class="mt-4 hidden rounded-2xl px-4 py-3 text-sm"></p>
+            </section>
+        </div>
+    </div>
+
+    <script>
+        function showMessage(elementId, text, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = text;
+            element.className = `mt-4 rounded-2xl px-4 py-3 text-sm ${isError ? 'bg-red-500/20 text-red-100' : 'bg-emerald-500/20 text-emerald-100'}`;
+            element.classList.remove('hidden');
+        }
+
+        document.getElementById('password-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const response = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_password: document.getElementById('old_password').value,
+                    new_password: document.getElementById('new_password').value,
+                }),
+            });
+
+            const data = await response.json();
+            showMessage('password-message', data.error || 'Password updated successfully', !response.ok);
+            if (response.ok) {
+                document.getElementById('password-form').reset();
+            }
+        });
+
+        document.getElementById('delete-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const response = await fetch('/api/delete-account', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    password: document.getElementById('delete_password').value,
+                }),
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                showMessage('delete-message', data.error || 'Unable to delete account', true);
+                return;
+            }
+
+            showMessage('delete-message', 'Account deleted. Redirecting...');
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 800);
+        });
+    </script>
+</body>
+</html>
