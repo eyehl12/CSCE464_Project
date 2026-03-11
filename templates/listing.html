@@ -91,7 +91,15 @@
             let bidFormHTML = '';
             {% if current_user %}
                 if (item.user_is_seller) {
-                    bidFormHTML = '<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 font-medium">This is your listing. You cannot bid on it.</div>';
+                    bidFormHTML = `
+                        <div class="space-y-3">
+                            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 font-medium">This is your listing. You cannot bid on it.</div>
+                            <button id="delete-listing-btn" type="button" class="w-full bg-red-600 hover:bg-red-700 text-white px-5 py-3 rounded-xl font-bold transition-all shadow-sm">
+                                Delete Listing
+                            </button>
+                            <p id="delete-msg" class="hidden text-sm"></p>
+                        </div>
+                    `;
                 } else if (ended) {
                     bidFormHTML = '<div class="bg-gray-100 border border-gray-200 rounded-xl p-4 text-sm text-gray-600 font-medium">This auction has ended.</div>';
                 } else {
@@ -219,6 +227,34 @@
                         msg.classList.add('text-red-600');
                         msg.classList.remove('hidden');
                     }
+                });
+            }
+
+            const deleteListingBtn = document.getElementById('delete-listing-btn');
+            if (deleteListingBtn) {
+                deleteListingBtn.addEventListener('click', async function () {
+                    const confirmed = window.confirm('Delete this listing? This cannot be undone.');
+                    if (!confirmed) return;
+
+                    const msg = document.getElementById('delete-msg');
+                    deleteListingBtn.disabled = true;
+                    deleteListingBtn.textContent = 'Deleting…';
+
+                    const res = await fetch('/api/listings/' + LISTING_ID, {
+                        method: 'DELETE',
+                    });
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        window.location.href = '/';
+                        return;
+                    }
+
+                    msg.textContent = data.error || 'Failed to delete listing.';
+                    msg.className = 'text-sm text-red-600';
+                    msg.classList.remove('hidden');
+                    deleteListingBtn.disabled = false;
+                    deleteListingBtn.textContent = 'Delete Listing';
                 });
             }
 

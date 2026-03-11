@@ -8,11 +8,10 @@ Before first run, initialize the database:
     mysql -u root -proot < init.sql
 """
 
-import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -29,11 +28,13 @@ CATEGORY_LABELS = {
     "general-auction": "General Auction",
 }
 
-IMAGE_DIR = os.path.join(os.path.dirname(__file__), "static", "images")
-NUM_IMAGES = len([name for name in os.listdir(IMAGE_DIR) if name.lower().endswith(".jpg")])
-
-
 # ─── Helpers ───────────────────────────────────────────
+
+
+def clear_user_session():
+    session.pop("user_id", None)
+    session.pop("user_name", None)
+    session.pop("user_email", None)
 
 
 def get_current_user():
@@ -41,11 +42,22 @@ def get_current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    return {
-        "id": user_id,
-        "name": session.get("user_name"),
-        "email": session.get("user_email"),
-    }
+
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name, email FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not user:
+        clear_user_session()
+        return None
+
+    session["user_id"] = user["id"]
+    session["user_name"] = user["name"]
+    session["user_email"] = user["email"]
+    return user
 
 
 def login_required(func):
@@ -53,7 +65,7 @@ def login_required(func):
 
     @wraps(func)
     def wrapped(*args, **kwargs):
-        if not session.get("user_id"):
+        if not get_current_user():
             return redirect(url_for("page_login"))
         return func(*args, **kwargs)
 
@@ -90,6 +102,7 @@ def listing_row_to_json(row):
         "id": row["id"],
         "title": row["title"],
         "description": row.get("description", ""),
+        "image_url": row.get("image_url"),
         "category": row["category"],
         "category_label": CATEGORY_LABELS.get(row["category"], row["category"]),
         "starting_price": round(starting / 100, 2),
@@ -101,7 +114,6 @@ def listing_row_to_json(row):
         "time_left": _time_left_str(row.get("ends_at")),
         "seller_id": row.get("seller_id"),
         "seller_name": row.get("seller_name", "Unknown"),
-        "image_url": f"/api/listings/{row['id']}/image",
     }
 
 
@@ -214,17 +226,16 @@ def api_login():
 
 @app.post("/api/logout")
 def api_logout():
-    session.pop("user_id", None)
-    session.pop("user_name", None)
-    session.pop("user_email", None)
+    clear_user_session()
     return jsonify({"ok": True})
 
 
 @app.post("/api/change-password")
 def api_change_password():
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     data = request.get_json(silent=True) or {}
     old_password = data.get("old_password") or ""
@@ -255,9 +266,10 @@ def api_change_password():
 
 @app.post("/api/delete-account")
 def api_delete_account():
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     data = request.get_json(silent=True) or {}
     password = data.get("password") or ""
@@ -279,16 +291,14 @@ def api_delete_account():
     cur.close()
     conn.close()
 
-    session.pop("user_id", None)
-    session.pop("user_name", None)
-    session.pop("user_email", None)
+    clear_user_session()
     return jsonify({"ok": True})
 
 
 # ─── Listings API ─────────────────────────────────────
 
 LISTINGS_SELECT = """
-    SELECT l.id, l.title, l.description, l.category,
+    SELECT l.id, l.title, l.description, l.image_url, l.category,
            l.starting_price_cents, l.ends_at, l.seller_id, l.created_at,
            u.name AS seller_name,
            (SELECT MAX(b.amount_cents) FROM bids b WHERE b.listing_id = l.id) AS current_bid_cents,
@@ -393,8 +403,9 @@ def api_listing_detail(listing_id):
     ]
 
     # If the current user is logged in, provide extra context
-    user_id = session.get("user_id")
-    if user_id:
+    current_user = get_current_user()
+    if current_user:
+        user_id = current_user["id"]
         result["user_is_seller"] = row["seller_id"] == user_id
         cur.execute(
             "SELECT MAX(amount_cents) AS max_bid FROM bids WHERE listing_id = %s AND bidder_id = %s",
@@ -413,40 +424,26 @@ def api_listing_detail(listing_id):
     return jsonify(result)
 
 
-@app.get("/api/listings/<int:listing_id>/image")
-def api_listing_image(listing_id):
-    conn = get_conn()
-    cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id FROM listings WHERE id = %s", (listing_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not row:
-        return jsonify({"error": "Listing not found"}), 404
-    if NUM_IMAGES == 0:
-        return jsonify({"error": "No images available"}), 404
-
-    image_index = ((listing_id - 1) % NUM_IMAGES) + 1
-    return send_from_directory(IMAGE_DIR, f"product_{image_index}.jpg")
-
-
 @app.post("/api/listings")
 def api_create_listing():
     """Create a new auction listing (login required)."""
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     description = (data.get("description") or "").strip()
+    image_url = (data.get("image_url") or "").strip()
     category = data.get("category") or ""
     starting_price = data.get("starting_price")
-    duration_hours = data.get("duration_hours", 24)
+    duration_value = data.get("duration_value", 24)
 
     if not title:
         return jsonify({"error": "Title is required"}), 400
+    if not image_url:
+        return jsonify({"error": "Image link is required"}), 400
     if category not in CATEGORY_LABELS:
         return jsonify({"error": "Invalid category"}), 400
     try:
@@ -456,21 +453,25 @@ def api_create_listing():
     except (TypeError, ValueError):
         return jsonify({"error": "Starting price must be at least $0.01"}), 400
     try:
-        duration_hours = int(duration_hours)
-        if duration_hours < 1:
-            raise ValueError
+        if duration_value == "10s":
+            auction_duration = timedelta(seconds=10)
+        else:
+            duration_hours = int(duration_value)
+            if duration_hours < 1:
+                raise ValueError
+            auction_duration = timedelta(hours=duration_hours)
     except (TypeError, ValueError):
-        return jsonify({"error": "Duration must be at least 1 hour"}), 400
+        return jsonify({"error": "Duration must be 10 seconds or at least 1 hour"}), 400
 
     starting_price_cents = round(starting_price * 100)
-    ends_at = datetime.now() + timedelta(hours=duration_hours)
+    ends_at = datetime.now() + auction_duration
 
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO listings (seller_id, title, description, category, starting_price_cents, ends_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (user_id, title, description, category, starting_price_cents, ends_at),
+        "INSERT INTO listings (seller_id, title, description, image_url, category, starting_price_cents, ends_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (user_id, title, description, image_url, category, starting_price_cents, ends_at),
     )
     conn.commit()
     listing_id = cur.lastrowid
@@ -480,12 +481,47 @@ def api_create_listing():
     return jsonify({"ok": True, "listing_id": listing_id}), 201
 
 
+@app.delete("/api/listings/<int:listing_id>")
+def api_delete_listing(listing_id):
+    """Delete a listing owned by the current user."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, seller_id FROM listings WHERE id = %s", (listing_id,))
+    listing = cur.fetchone()
+
+    if not listing:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Listing not found"}), 404
+
+    if listing["seller_id"] != user_id:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "You can only delete your own listings"}), 403
+
+    cur2 = conn.cursor()
+    cur2.execute("DELETE FROM listings WHERE id = %s", (listing_id,))
+    conn.commit()
+
+    cur2.close()
+    cur.close()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
 @app.post("/api/listings/<int:listing_id>/bid")
 def api_place_bid(listing_id):
     """Place a bid on a listing (login required)."""
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     data = request.get_json(silent=True) or {}
     try:
@@ -555,9 +591,10 @@ def api_place_bid(listing_id):
 @app.get("/api/my/listings")
 def api_my_listings():
     """Get all listings created by the current user."""
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
@@ -575,9 +612,10 @@ def api_my_listings():
 @app.get("/api/my/bids")
 def api_my_bids():
     """Get all listings the current user has bid on, with their highest bid."""
-    user_id = session.get("user_id")
-    if not user_id:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)

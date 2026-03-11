@@ -47,6 +47,12 @@
                               class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-y"></textarea>
                 </div>
 
+                <div>
+                    <label for="image-url" class="block text-sm font-semibold text-gray-700 mb-1">Image Link</label>
+                    <input id="image-url" type="url" required placeholder="https://picsum.photos/seed/my-item/800/600"
+                           class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent">
+                </div>
+
                 <!-- Category -->
                 <div>
                     <label for="category" class="block text-sm font-semibold text-gray-700 mb-1">Category</label>
@@ -68,9 +74,10 @@
                                class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent">
                     </div>
                     <div>
-                        <label for="duration" class="block text-sm font-semibold text-gray-700 mb-1">Duration (hours)</label>
+                        <label for="duration" class="block text-sm font-semibold text-gray-700 mb-1">Duration</label>
                         <select id="duration"
                                 class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent bg-white">
+                            <option value="10s">10 seconds (testing)</option>
                             <option value="1">1 hour</option>
                             <option value="3">3 hours</option>
                             <option value="6">6 hours</option>
@@ -119,9 +126,10 @@
             const body = {
                 title:          document.getElementById('title').value.trim(),
                 description:    document.getElementById('description').value.trim(),
+                image_url:      document.getElementById('image-url').value.trim(),
                 category:       document.getElementById('category').value,
                 starting_price: parseFloat(document.getElementById('starting-price').value),
-                duration_hours: parseInt(document.getElementById('duration').value, 10),
+                duration_value: document.getElementById('duration').value,
             };
 
             try {
