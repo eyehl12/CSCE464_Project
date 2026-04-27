@@ -44,7 +44,7 @@
             <div class="flex-1 min-w-0">
                 <h1 id="seller-name" class="text-2xl font-black text-gray-900">Loading…</h1>
                 <div id="seller-location" class="text-sm text-gray-500 mt-0.5 hidden">
-                    <span class="mr-1">📍</span><span id="seller-location-text"></span>
+                    <span id="seller-location-text"></span>
                 </div>
                 <div id="seller-meta" class="flex flex-wrap gap-4 mt-3 text-sm text-gray-600"></div>
             </div>
@@ -99,9 +99,9 @@
                 // Member since + stats
                 const since = u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', {year:'numeric',month:'long'}) : '';
                 document.getElementById('seller-meta').innerHTML =
-                    (since ? '<span>🗓 Member since ' + since + '</span>' : '') +
-                    '<span>📦 ' + u.active_listings + ' active listing' + (u.active_listings === 1 ? '' : 's') + '</span>' +
-                    '<span>📋 ' + u.total_listings + ' total</span>';
+                    (since ? '<span>Member since ' + since + '</span>' : '') +
+                    '<span>' + u.active_listings + ' active listing' + (u.active_listings === 1 ? '' : 's') + '</span>' +
+                    '<span>' + u.total_listings + ' total listings</span>';
 
                 // Actions
                 const actionsEl = document.getElementById('seller-actions');
@@ -137,9 +137,9 @@
                     card.className = 'listing-card rounded-2xl overflow-hidden flex flex-col no-underline';
 
                     const active  = new Date(item.ends_at) > new Date();
-                    const bid_fmt = item.current_bid_cents
-                        ? '$' + (item.current_bid_cents / 100).toFixed(2)
-                        : '$' + (item.starting_price_cents / 100).toFixed(2);
+                    const bid_fmt = item.current_bid
+                        ? '$' + item.current_bid.toFixed(2)
+                        : '$' + item.starting_price.toFixed(2);
                     const tag_cls = active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
                     const tag_lbl = active ? 'Active' : 'Ended';
 
