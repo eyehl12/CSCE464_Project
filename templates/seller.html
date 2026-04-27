@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UNListings | Seller Profile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background: radial-gradient(circle at top, #ffe4e6 0%, #fff7ed 35%, #ffffff 100%); color: #1f2937; }
+        .listing-card { background: white; border: 1px solid #fecdd3; transition: transform 0.2s ease, box-shadow 0.2s ease; cursor: pointer; }
+        .listing-card:hover { transform: translateY(-4px); box-shadow: 0 14px 18px -12px rgba(127,29,29,0.45); }
+        .countdown { font-variant-numeric: tabular-nums; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- Navbar -->
+    <header class="bg-rose-800 text-white sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
+            <a href="/" class="text-2xl font-extrabold border border-transparent hover:border-white p-1 transition-all no-underline text-white">UNListings</a>
+            <div class="flex-grow"></div>
+            <div class="flex items-center gap-3 text-sm font-semibold">
+                {% if current_user %}
+                    <a href="/sell" class="px-3 py-1 rounded border border-rose-300 hover:bg-rose-700 text-white no-underline">+ Sell Item</a>
+                    <a href="/profile" class="px-3 py-1 rounded border border-rose-300 hover:bg-rose-700 text-white no-underline">Hi, {{ current_user.name }}</a>
+                    <button id="logout-btn" class="text-xs px-3 py-1 rounded border border-rose-300 hover:bg-rose-700">Logout</button>
+                {% else %}
+                    <a href="/login" class="text-xs px-3 py-1 rounded border border-rose-300 hover:bg-rose-700 text-white no-underline">Login</a>
+                    <a href="/register" class="text-xs px-3 py-1 rounded border border-rose-300 hover:bg-rose-700 text-white no-underline">Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 py-10">
+
+        <!-- Seller profile card -->
+        <div id="seller-card" class="bg-white border border-rose-200 rounded-2xl shadow-md p-6 mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-6">
+            <div id="seller-avatar"
+                 class="w-20 h-20 rounded-full bg-rose-100 flex items-center justify-center text-rose-700 font-black text-3xl shrink-0">
+                ?
+            </div>
+            <div class="flex-1 min-w-0">
+                <h1 id="seller-name" class="text-2xl font-black text-gray-900">Loading…</h1>
+                <div id="seller-location" class="text-sm text-gray-500 mt-0.5 hidden">
+                    <span class="mr-1">📍</span><span id="seller-location-text"></span>
+                </div>
+                <div id="seller-meta" class="flex flex-wrap gap-4 mt-3 text-sm text-gray-600"></div>
+            </div>
+            <div id="seller-actions" class="shrink-0"></div>
+        </div>
+
+        <!-- Section header -->
+        <h2 class="text-lg font-bold text-rose-800 mb-4" id="listings-heading">Listings</h2>
+
+        <!-- Listings grid -->
+        <div id="listing-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"></div>
+        <p id="no-listings" class="hidden text-center text-gray-400 py-10">This seller has no active listings.</p>
+
+    </main>
+
+    {% include '_chat.html' %}
+
+    <script>
+    (function () {
+        const SELLER_ID = {{ seller_id }};
+        {% if current_user %}const ME = {{ current_user.id }};{% else %}const ME = null;{% endif %}
+
+        // ── Navbar logout ──────────────────────────────
+        const logoutBtn = document.getElementById('logout-btn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', async function () {
+                await fetch('/api/logout', {method: 'POST'});
+                window.location.href = '/login';
+            });
+        }
+
+        // ── Load seller profile ───────────────────────
+        async function loadSeller() {
+            try {
+                const res = await fetch('/api/users/' + SELLER_ID);
+                if (!res.ok) {
+                    document.getElementById('seller-name').textContent = 'Seller not found';
+                    return;
+                }
+                const u = await res.json();
+                const initial = u.name ? u.name[0].toUpperCase() : '?';
+
+                document.getElementById('seller-avatar').textContent = initial;
+                document.getElementById('seller-name').textContent   = u.name;
+                document.title = 'UNListings | ' + u.name;
+
+                if (u.campus_location) {
+                    document.getElementById('seller-location-text').textContent = u.campus_location;
+                    document.getElementById('seller-location').classList.remove('hidden');
+                }
+
+                // Member since + stats
+                const since = u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', {year:'numeric',month:'long'}) : '';
+                document.getElementById('seller-meta').innerHTML =
+                    (since ? '<span>🗓 Member since ' + since + '</span>' : '') +
+                    '<span>📦 ' + u.active_listings + ' active listing' + (u.active_listings === 1 ? '' : 's') + '</span>' +
+                    '<span>📋 ' + u.total_listings + ' total</span>';
+
+                // Actions
+                const actionsEl = document.getElementById('seller-actions');
+                if (ME && ME !== SELLER_ID) {
+                    actionsEl.innerHTML =
+                        '<button onclick="window.chatPanel.openDM(' + SELLER_ID + ', null, null)" ' +
+                        'class="flex items-center gap-2 bg-rose-700 hover:bg-rose-800 text-white font-semibold px-5 py-2.5 rounded-xl text-sm transition-colors">' +
+                        '&#128172; Message ' + esc(u.name) + '</button>';
+                }
+
+                document.getElementById('listings-heading').textContent = u.name + "'s Listings";
+            } catch (e) {
+                document.getElementById('seller-name').textContent = 'Error loading seller';
+            }
+        }
+
+        // ── Load listings ─────────────────────────────
+        async function loadListings() {
+            try {
+                const res = await fetch('/api/users/' + SELLER_ID + '/listings');
+                if (!res.ok) return;
+                const data   = await res.json();
+                const items  = data.listings || [];
+                const grid   = document.getElementById('listing-grid');
+                const noEl   = document.getElementById('no-listings');
+
+                grid.innerHTML = '';
+                if (!items.length) { noEl.classList.remove('hidden'); return; }
+
+                items.forEach(function (item) {
+                    const card = document.createElement('a');
+                    card.href  = '/listing/' + item.id;
+                    card.className = 'listing-card rounded-2xl overflow-hidden flex flex-col no-underline';
+
+                    const active  = new Date(item.ends_at) > new Date();
+                    const bid_fmt = item.current_bid_cents
+                        ? '$' + (item.current_bid_cents / 100).toFixed(2)
+                        : '$' + (item.starting_price_cents / 100).toFixed(2);
+                    const tag_cls = active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
+                    const tag_lbl = active ? 'Active' : 'Ended';
+
+                    card.innerHTML =
+                        '<div class="h-36 bg-rose-50 flex items-center justify-center text-rose-200 text-5xl">' +
+                            (item.image_url
+                                ? '<img src="' + item.image_url + '" class="w-full h-full object-cover" alt="">'
+                                : '&#127974;') +
+                        '</div>' +
+                        '<div class="p-4 flex flex-col gap-1 flex-1">' +
+                            '<span class="inline-block text-xs font-semibold ' + tag_cls + ' rounded-full px-2 py-0.5 w-fit">' + tag_lbl + '</span>' +
+                            '<h3 class="font-bold text-sm text-gray-900 line-clamp-2 mt-0.5">' + esc(item.title) + '</h3>' +
+                            '<span class="text-rose-700 font-black text-base mt-auto">' + bid_fmt + '</span>' +
+                        '</div>';
+                    grid.appendChild(card);
+                });
+            } catch (e) {}
+        }
+
+        // ── Helpers ───────────────────────────────────
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = String(s == null ? '' : s);
+            return d.innerHTML;
+        }
+
+        loadSeller();
+        loadListings();
+    })();
+    </script>
+</body>
+</html>

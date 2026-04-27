@@ -1,0 +1,439 @@
+{% if current_user %}
+<!-- ═══════ Chat Panel ═══════ -->
+<style>
+  #chat-toggle-btn {
+    position: fixed;
+    right: 0;
+    top: 100px;
+    z-index: 200;
+    background: #9f1239;
+    color: white;
+    border: none;
+    cursor: pointer;
+    padding: 10px 14px 10px 16px;
+    border-radius: 8px 0 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: -3px 3px 12px rgba(0,0,0,0.25);
+    transition: background 0.2s, padding-right 0.2s;
+    white-space: nowrap;
+  }
+  #chat-toggle-btn:hover { background: #7f1d1d; }
+  #chat-toggle-unread {
+    background: #fff;
+    color: #9f1239;
+    font-size: 10px;
+    font-weight: 800;
+    border-radius: 9999px;
+    min-width: 16px;
+    height: 16px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+  }
+  #chat-panel {
+    position: fixed; top: 0; right: 0; width: 360px; height: 100vh;
+    background: white; z-index: 199;
+    box-shadow: -6px 0 24px rgba(0,0,0,0.12);
+    display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform 0.3s ease;
+    font-family: 'Inter', sans-serif;
+  }
+  #chat-toggle-unread {
+    background: #dc2626; color: white; font-size: 10px; font-weight: 700;
+    border-radius: 9999px; min-width: 16px; height: 16px;
+    display: none; align-items: center; justify-content: center; padding: 0 3px;
+    margin-left: 3px; border: 1.5px solid white;
+  }
+  #tab-unread-badge {
+    background: #9f1239; color: white; font-size: 10px; font-weight: 700;
+    border-radius: 9999px; min-width: 18px; height: 18px;
+    padding: 0 4px; align-items: center; justify-content: center;
+  }
+</style>
+
+<button id="chat-toggle-btn">
+  &#128172; Chat
+  <span id="chat-toggle-unread"></span>
+</button>
+
+<div id="chat-panel">
+
+  <!-- Header -->
+  <div style="background:#9f1239;color:white;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+    <span style="font-weight:700;font-size:15px;">&#128172; UNListings Chat</span>
+    <button id="chat-close-btn" style="background:none;border:none;color:white;font-size:24px;cursor:pointer;line-height:1;padding:0 4px;">&times;</button>
+  </div>
+
+  <!-- Tabs -->
+  <div style="display:flex;border-bottom:1px solid #fecdd3;flex-shrink:0;background:#fff7f7;">
+    <button class="chtab" data-tab="community"
+      style="flex:1;padding:10px 6px;font-size:13px;font-weight:600;background:none;border:none;border-bottom:2px solid #9f1239;color:#9f1239;cursor:pointer;">
+      Community
+    </button>
+    <button class="chtab" data-tab="messages"
+      style="flex:1;padding:10px 6px;font-size:13px;font-weight:400;background:none;border:none;border-bottom:2px solid transparent;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+      Messages
+      <span id="tab-unread-badge" style="display:none;background:#9f1239;color:white;font-size:10px;font-weight:700;border-radius:9999px;min-width:18px;height:18px;padding:0 4px;align-items:center;justify-content:center;"></span>
+    </button>
+  </div>
+
+  <!-- ── Community Tab ── -->
+  <div id="tab-community" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+    <div id="community-feed" style="flex:1;overflow-y:auto;padding:8px 0;"></div>
+    <div style="border-top:1px solid #fecdd3;padding:10px;display:flex;gap:8px;flex-shrink:0;">
+      <input id="community-input" type="text" maxlength="500" placeholder="Message the community…"
+        style="flex:1;border:1px solid #fecdd3;border-radius:20px;padding:8px 14px;font-size:13px;outline:none;font-family:inherit;">
+      <button id="community-send"
+        style="background:#9f1239;color:white;border:none;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">
+        Send
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Messages Tab ── -->
+  <div id="tab-messages" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+
+    <!-- Conversation list -->
+    <div id="conv-list-view" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;">
+      <div id="conv-list" style="flex:1;"></div>
+    </div>
+
+    <!-- Active conversation -->
+    <div id="conv-active-view" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #fecdd3;flex-shrink:0;background:#fff7f7;">
+        <button id="conv-back-btn" style="background:none;border:none;color:#9f1239;font-weight:600;font-size:13px;cursor:pointer;padding:0;">&#8592; Back</button>
+        <div style="flex:1;min-width:0;">
+          <div id="conv-partner-name" style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+          <div id="conv-listing-ref" style="font-size:11px;color:#9f1239;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        </div>
+      </div>
+      <div id="conv-feed" style="flex:1;overflow-y:auto;padding:8px 0;"></div>
+      <div style="border-top:1px solid #fecdd3;padding:10px;display:flex;gap:8px;flex-shrink:0;">
+        <input id="conv-msg-input" type="text" maxlength="2000" placeholder="Send a message…"
+          style="flex:1;border:1px solid #fecdd3;border-radius:20px;padding:8px 14px;font-size:13px;outline:none;font-family:inherit;">
+        <button id="conv-send-btn"
+          style="background:#9f1239;color:white;border:none;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">
+          Send
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div><!-- end #chat-panel -->
+
+<script>
+(function () {
+  const ME = {{ current_user.id }};
+
+  // ── DOM refs ──────────────────────────────────────
+  const panel       = document.getElementById('chat-panel');
+  const toggleBtn   = document.getElementById('chat-toggle-btn');
+  const toggleUnread= document.getElementById('chat-toggle-unread');
+  const tabUnread   = document.getElementById('tab-unread-badge');
+  const commFeed    = document.getElementById('community-feed');
+  const convListEl  = document.getElementById('conv-list');
+  const convFeed    = document.getElementById('conv-feed');
+
+  // ── State ─────────────────────────────────────────
+  let isOpen        = false;
+  let activeTab     = 'community';
+  let commLastId    = 0;
+  let convActiveId  = null;
+  let convLastId    = 0;
+  let timers        = {};
+
+  // ── Helpers ───────────────────────────────────────
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s);
+    return d.innerHTML;
+  }
+
+  function relTime(iso) {
+    if (!iso) return '';
+    const diff = Date.now() - new Date(iso);
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+
+  function stopAll() {
+    Object.values(timers).forEach(clearInterval);
+    timers = {};
+  }
+
+  function updateUnread(n) {
+    const show = n > 0;
+    toggleUnread.textContent  = show ? String(n) : '';
+    toggleUnread.style.display = show ? 'flex' : 'none';
+    tabUnread.textContent     = show ? String(n) : '';
+    tabUnread.style.display   = show ? 'inline-flex' : 'none';
+  }
+
+  function msgBubble(isMine, nameHtml, bodyHtml, timeStr) {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;gap:8px;padding:4px 12px;' + (isMine ? 'flex-direction:row-reverse;' : '');
+    div.innerHTML =
+      '<div style="max-width:240px;">' +
+      (nameHtml ? '<div style="font-size:11px;font-weight:600;color:#9f1239;margin-bottom:2px;">' + nameHtml + '</div>' : '') +
+      '<div style="border-radius:18px;padding:7px 12px;font-size:13px;word-break:break-word;' +
+        (isMine ? 'background:#9f1239;color:white;' : 'background:#f3f4f6;color:#1f2937;') + '">' + bodyHtml + '</div>' +
+      '<div style="font-size:10px;color:#9ca3af;margin-top:2px;' + (isMine ? 'text-align:right;' : '') + '">' + timeStr + '</div>' +
+      '</div>';
+    return div;
+  }
+
+  // ── Panel toggle ──────────────────────────────────
+  function openPanel() {
+    isOpen = true;
+    panel.style.transform = 'translateX(0)';
+    toggleBtn.style.display = 'none';
+    if (activeTab === 'community') startCommPoll();
+    else { loadConvList(); startConvListPoll(); }
+  }
+
+  function closePanel() {
+    isOpen = false;
+    panel.style.transform = 'translateX(100%)';
+    toggleBtn.style.display = 'flex';
+    stopAll();
+  }
+
+  toggleBtn.addEventListener('click', () => isOpen ? closePanel() : openPanel());
+  document.getElementById('chat-close-btn').addEventListener('click', closePanel);
+
+  // ── Tab switching ─────────────────────────────────
+  document.querySelectorAll('.chtab').forEach(function (btn) {
+    btn.addEventListener('click', function () { switchTab(this.dataset.tab); });
+  });
+
+  function switchTab(tab) {
+    stopAll();
+    activeTab = tab;
+    document.querySelectorAll('.chtab').forEach(function (b) {
+      const active = b.dataset.tab === tab;
+      b.style.borderBottomColor = active ? '#9f1239' : 'transparent';
+      b.style.color = active ? '#9f1239' : '#6b7280';
+      b.style.fontWeight = active ? '600' : '400';
+    });
+    document.getElementById('tab-community').style.display = tab === 'community' ? 'flex' : 'none';
+    document.getElementById('tab-messages').style.display  = tab === 'messages'  ? 'flex' : 'none';
+    if (!isOpen) return;
+    if (tab === 'community') startCommPoll();
+    else if (convActiveId) { showConvActive(); startConvPoll(); }
+    else { loadConvList(); startConvListPoll(); }
+  }
+
+  // ── Community chat ────────────────────────────────
+  async function startCommPoll() {
+    await loadComm(commLastId === 0);
+    timers.comm = setInterval(function () { loadComm(false); }, 3000);
+  }
+
+  async function loadComm(initial) {
+    try {
+      const res = await fetch('/api/chat/general?since=' + (initial ? 0 : commLastId));
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs = data.messages || [];
+      if (!msgs.length) return;
+      if (initial) commFeed.innerHTML = '';
+      const atBottom = commFeed.scrollHeight - commFeed.clientHeight <= commFeed.scrollTop + 60;
+      msgs.forEach(function (m) {
+        if (m.id <= commLastId) return;
+        commLastId = Math.max(commLastId, m.id);
+        const isMine = m.user_id === ME;
+        commFeed.appendChild(msgBubble(isMine, isMine ? null : esc(m.user_name), esc(m.message), relTime(m.created_at)));
+      });
+      if (initial || atBottom) commFeed.scrollTop = commFeed.scrollHeight;
+    } catch (e) {}
+  }
+
+  document.getElementById('community-send').addEventListener('click', sendCommMsg);
+  document.getElementById('community-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); sendCommMsg(); }
+  });
+
+  async function sendCommMsg() {
+    const inp = document.getElementById('community-input');
+    const msg = inp.value.trim();
+    if (!msg) return;
+    inp.value = '';
+    try {
+      const res = await fetch('/api/chat/general', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: msg}),
+      });
+      if (res.ok) loadComm(false);
+    } catch (e) {}
+  }
+
+  // ── Conversation list ─────────────────────────────
+  async function loadConvList() {
+    try {
+      const res = await fetch('/api/conversations');
+      if (!res.ok) return;
+      const data = await res.json();
+      const convs = data.conversations || [];
+      convListEl.innerHTML = '';
+      if (!convs.length) {
+        convListEl.innerHTML = '<p style="text-align:center;color:#9ca3af;font-size:13px;padding:32px 16px;">No messages yet.<br>Message a seller from any listing!</p>';
+        updateUnread(0);
+        return;
+      }
+      let total = 0;
+      convs.forEach(function (c) {
+        total += c.unread_count || 0;
+        const lm = c.last_message;
+        const div = document.createElement('div');
+        div.style.cssText = 'display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid #fef2f2;transition:background 0.15s;';
+        div.onmouseenter = function () { div.style.background = '#fff7f7'; };
+        div.onmouseleave = function () { div.style.background = ''; };
+        div.innerHTML =
+          '<div style="width:36px;height:36px;border-radius:50%;background:#ffe4e6;color:#9f1239;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + esc(c.other_user.name[0].toUpperCase()) + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+              '<span style="font-weight:600;font-size:13px;color:#111827;">' + esc(c.other_user.name) + '</span>' +
+              '<span style="font-size:10px;color:#9ca3af;">' + (lm ? relTime(lm.created_at) : '') + '</span>' +
+            '</div>' +
+            (lm ? '<div style="font-size:12px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(lm.body.substring(0, 45)) + '</div>' : '<div style="font-size:12px;color:#d1d5db;">No messages yet</div>') +
+            (c.listing_title ? '<div style="font-size:10px;color:#9f1239;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">re: ' + esc(c.listing_title) + '</div>' : '') +
+          '</div>' +
+          (c.unread_count > 0 ? '<span style="background:#9f1239;color:white;font-size:10px;font-weight:700;border-radius:9999px;min-width:18px;height:18px;padding:0 4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + c.unread_count + '</span>' : '');
+        div.addEventListener('click', function () { openConv(c.id, c.other_user.name, c.listing_title); });
+        convListEl.appendChild(div);
+      });
+      updateUnread(total);
+    } catch (e) {}
+  }
+
+  function startConvListPoll() {
+    timers.convList = setInterval(loadConvList, 10000);
+  }
+
+  // ── Active conversation ───────────────────────────
+  async function openConv(convId, partnerName, listingTitle) {
+    convActiveId = convId;
+    convLastId   = 0;
+    document.getElementById('conv-partner-name').textContent = partnerName;
+    document.getElementById('conv-listing-ref').textContent  = listingTitle ? 're: ' + listingTitle : '';
+    convFeed.innerHTML = '';
+    showConvActive();
+    stopAll();
+    await loadConvMsgs(true);
+    startConvPoll();
+    setTimeout(function () { markRead(convId); }, 600);
+  }
+
+  function showConvActive() {
+    document.getElementById('conv-list-view').style.display   = 'none';
+    const av = document.getElementById('conv-active-view');
+    av.style.display       = 'flex';
+    av.style.flexDirection = 'column';
+    av.style.flex          = '1';
+    av.style.overflow      = 'hidden';
+  }
+
+  function startConvPoll() {
+    timers.conv = setInterval(function () { loadConvMsgs(false); }, 3000);
+  }
+
+  async function loadConvMsgs(initial) {
+    if (!convActiveId) return;
+    try {
+      const since = initial ? 0 : convLastId;
+      const res = await fetch('/api/conversations/' + convActiveId + '/messages?since=' + since);
+      if (!res.ok) return;
+      const data = await res.json();
+      const msgs = data.messages || [];
+      if (!msgs.length) return;
+      if (initial) convFeed.innerHTML = '';
+      const atBottom = convFeed.scrollHeight - convFeed.clientHeight <= convFeed.scrollTop + 60;
+      msgs.forEach(function (m) {
+        if (m.id <= convLastId) return;
+        convLastId = Math.max(convLastId, m.id);
+        const isMine = m.sender_id === ME;
+        convFeed.appendChild(msgBubble(isMine, null, esc(m.body), relTime(m.created_at)));
+      });
+      if (initial || atBottom) convFeed.scrollTop = convFeed.scrollHeight;
+    } catch (e) {}
+  }
+
+  document.getElementById('conv-back-btn').addEventListener('click', function () {
+    stopAll();
+    convActiveId = null;
+    document.getElementById('conv-active-view').style.display = 'none';
+    document.getElementById('conv-list-view').style.display   = 'flex';
+    loadConvList();
+    startConvListPoll();
+  });
+
+  document.getElementById('conv-send-btn').addEventListener('click', sendConvMsg);
+  document.getElementById('conv-msg-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); sendConvMsg(); }
+  });
+
+  async function sendConvMsg() {
+    if (!convActiveId) return;
+    const inp = document.getElementById('conv-msg-input');
+    const body = inp.value.trim();
+    if (!body) return;
+    inp.value = '';
+    try {
+      const res = await fetch('/api/conversations/' + convActiveId + '/messages', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({body: body}),
+      });
+      if (res.ok) loadConvMsgs(false);
+    } catch (e) {}
+  }
+
+  async function markRead(convId) {
+    try { await fetch('/api/conversations/' + convId + '/read', {method: 'POST'}); } catch (e) {}
+  }
+
+  // ── Unread poll (always running) ──────────────────
+  async function pollUnread() {
+    try {
+      const res = await fetch('/api/conversations/unread');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!isOpen || activeTab !== 'messages' || convActiveId) {
+        updateUnread(data.total_unread || 0);
+      }
+    } catch (e) {}
+  }
+  setInterval(pollUnread, 15000);
+  pollUnread();
+
+  // ── Public API ────────────────────────────────────
+  window.chatPanel = {
+    openDM: async function (otherUserId, listingId, listingTitle) {
+      try {
+        const res = await fetch('/api/conversations', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({other_user_id: otherUserId, listing_id: listingId || null}),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isOpen) openPanel();
+        switchTab('messages');
+        setTimeout(function () {
+          openConv(data.conversation_id, data.other_user_name, listingTitle || data.listing_title);
+        }, 150);
+      } catch (e) {}
+    },
+  };
+
+})();
+</script>
+
+{% endif %}

@@ -165,7 +165,9 @@
                 <h1 class="mt-4 text-4xl font-bold">Profile</h1>
                 <p class="mt-2 text-red-100">Manage your account, listings, and bids.</p>
             </div>
-            <a href="/sell" class="rounded-2xl bg-red-500 px-6 py-3 font-semibold text-white transition hover:bg-red-400 no-underline text-sm">+ Create Listing</a>
+            <div class="flex items-center gap-3">
+                <a href="/sell" class="rounded-2xl bg-red-500 px-6 py-3 font-semibold text-white transition hover:bg-red-400 no-underline text-sm">+ Create Listing</a>
+            </div>
         </div>
 
         <!-- ═══ Account & Password ═══ -->
@@ -552,5 +554,7 @@
             }
         })();
     </script>
+
+    {% include '_chat.html' %}
 </body>
 </html>

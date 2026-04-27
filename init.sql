@@ -58,6 +58,43 @@ CREATE TABLE watchlist (
 );
 
 -- ═══════════════════════════════════════════════════════
+-- General Chat
+-- ═══════════════════════════════════════════════════════
+CREATE TABLE general_chat (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_gchat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ═══════════════════════════════════════════════════════
+-- Messaging: Conversations + Messages
+-- ═══════════════════════════════════════════════════════
+CREATE TABLE conversations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user1_id INT NOT NULL,
+    user2_id INT NOT NULL,
+    listing_id INT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_conversation (user1_id, user2_id),
+    CONSTRAINT fk_conv_user1   FOREIGN KEY (user1_id)   REFERENCES users(id)    ON DELETE CASCADE,
+    CONSTRAINT fk_conv_user2   FOREIGN KEY (user2_id)   REFERENCES users(id)    ON DELETE CASCADE,
+    CONSTRAINT fk_conv_listing FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE SET NULL
+);
+
+CREATE TABLE messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id INT NOT NULL,
+    body TEXT NOT NULL,
+    is_read TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_msg_conv   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id)       REFERENCES users(id)         ON DELETE CASCADE
+);
+
+-- ═══════════════════════════════════════════════════════
 -- Seed Users (passwords are all "password" hashed with werkzeug)
 -- ═══════════════════════════════════════════════════════
 INSERT INTO users (id, email, password_hash, name, campus_location) VALUES

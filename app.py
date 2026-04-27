@@ -244,6 +244,11 @@ def page_listing(listing_id):
     return render_template("listing.html", listing_id=listing_id)
 
 
+@app.get("/seller/<int:seller_id>")
+def page_seller(seller_id):
+    return render_template("seller.html", seller_id=seller_id)
+
+
 # ─── Auth API ─────────────────────────────────────────
 
 
@@ -766,6 +771,351 @@ def api_place_bid(listing_id):
     conn.close()
 
     return jsonify({"ok": True, "amount": amount, "listing_id": listing_id})
+
+
+# ─── User Profile API ─────────────────────────────────
+
+
+@app.get("/api/users/<int:user_id>")
+def api_user_profile(user_id):
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name, campus_location, created_at FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+    if not user:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+    cur.execute("SELECT COUNT(*) AS cnt FROM listings WHERE seller_id = %s AND ends_at > NOW()", (user_id,))
+    active = cur.fetchone()["cnt"]
+    cur.execute("SELECT COUNT(*) AS cnt FROM listings WHERE seller_id = %s", (user_id,))
+    total = cur.fetchone()["cnt"]
+    cur.close()
+    conn.close()
+    return jsonify({
+        "id": user["id"],
+        "name": user["name"],
+        "campus_location": user["campus_location"],
+        "created_at": user["created_at"].isoformat(),
+        "active_listings": active,
+        "total_listings": total,
+    })
+
+
+@app.get("/api/users/<int:user_id>/listings")
+def api_user_listings(user_id):
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        LISTINGS_SELECT + " WHERE l.seller_id = %s"
+        " ORDER BY CASE WHEN l.ends_at > NOW() THEN 0 ELSE 1 END ASC, l.ends_at ASC",
+        (user_id,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({"listings": [listing_row_to_json(r) for r in rows]})
+
+
+# ─── General Chat API ─────────────────────────────────
+
+
+@app.get("/api/chat/general")
+def api_chat_general_get():
+    since = request.args.get("since", 0, type=int)
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    if since == 0:
+        cur.execute(
+            """SELECT gc.id, gc.user_id, gc.message, gc.created_at, u.name AS user_name
+               FROM general_chat gc JOIN users u ON u.id = gc.user_id
+               ORDER BY gc.id DESC LIMIT 50"""
+        )
+        rows = list(reversed(cur.fetchall()))
+    else:
+        cur.execute(
+            """SELECT gc.id, gc.user_id, gc.message, gc.created_at, u.name AS user_name
+               FROM general_chat gc JOIN users u ON u.id = gc.user_id
+               WHERE gc.id > %s ORDER BY gc.id ASC""",
+            (since,),
+        )
+        rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({
+        "messages": [
+            {
+                "id": r["id"],
+                "user_id": r["user_id"],
+                "user_name": r["user_name"],
+                "message": r["message"],
+                "created_at": r["created_at"].isoformat(),
+            }
+            for r in rows
+        ]
+    })
+
+
+@app.post("/api/chat/general")
+def api_chat_general_post():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    data = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Message is required"}), 400
+    if len(message) > 1000:
+        return jsonify({"error": "Message too long"}), 400
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO general_chat (user_id, message) VALUES (%s, %s)", (current_user["id"], message))
+    conn.commit()
+    new_id = cur.lastrowid
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "id": new_id}), 201
+
+
+# ─── Conversations API ────────────────────────────────
+
+
+@app.get("/api/conversations")
+def api_conversations_list():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        """
+        SELECT c.id, c.user1_id, c.user2_id, c.listing_id,
+               u1.name AS user1_name, u2.name AS user2_name,
+               l.title AS listing_title,
+               (SELECT COUNT(*) FROM messages m
+                WHERE m.conversation_id = c.id AND m.sender_id != %s AND m.is_read = 0) AS unread_count,
+               (SELECT m2.body FROM messages m2
+                WHERE m2.conversation_id = c.id ORDER BY m2.id DESC LIMIT 1) AS last_body,
+               (SELECT m2.created_at FROM messages m2
+                WHERE m2.conversation_id = c.id ORDER BY m2.id DESC LIMIT 1) AS last_msg_at
+        FROM conversations c
+        JOIN users u1 ON u1.id = c.user1_id
+        JOIN users u2 ON u2.id = c.user2_id
+        LEFT JOIN listings l ON l.id = c.listing_id
+        WHERE c.user1_id = %s OR c.user2_id = %s
+        ORDER BY last_msg_at DESC, c.created_at DESC
+        """,
+        (user_id, user_id, user_id),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    result = []
+    for r in rows:
+        other_id = r["user2_id"] if r["user1_id"] == user_id else r["user1_id"]
+        other_name = r["user2_name"] if r["user1_id"] == user_id else r["user1_name"]
+        result.append({
+            "id": r["id"],
+            "other_user": {"id": other_id, "name": other_name},
+            "listing_title": r["listing_title"],
+            "unread_count": r["unread_count"] or 0,
+            "last_message": {
+                "body": r["last_body"],
+                "created_at": r["last_msg_at"].isoformat() if r["last_msg_at"] else None,
+            } if r["last_body"] else None,
+        })
+    return jsonify({"conversations": result})
+
+
+@app.post("/api/conversations")
+def api_conversations_create():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+    data = request.get_json(silent=True) or {}
+    other_user_id = data.get("other_user_id")
+    listing_id = data.get("listing_id") or None
+    if not other_user_id or other_user_id == user_id:
+        return jsonify({"error": "Invalid user"}), 400
+    u1 = min(user_id, other_user_id)
+    u2 = max(user_id, other_user_id)
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name FROM users WHERE id = %s", (other_user_id,))
+    other_user = cur.fetchone()
+    if not other_user:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+    listing_title = None
+    if listing_id:
+        cur.execute("SELECT title FROM listings WHERE id = %s", (listing_id,))
+        lr = cur.fetchone()
+        listing_title = lr["title"] if lr else None
+    cur.execute("SELECT id FROM conversations WHERE user1_id = %s AND user2_id = %s", (u1, u2))
+    existing = cur.fetchone()
+    if existing:
+        conv_id = existing["id"]
+        if listing_id:
+            cur2 = conn.cursor()
+            cur2.execute("UPDATE conversations SET listing_id = %s WHERE id = %s", (listing_id, conv_id))
+            conn.commit()
+            cur2.close()
+        created = False
+    else:
+        cur2 = conn.cursor()
+        cur2.execute(
+            "INSERT INTO conversations (user1_id, user2_id, listing_id) VALUES (%s, %s, %s)",
+            (u1, u2, listing_id),
+        )
+        conn.commit()
+        conv_id = cur2.lastrowid
+        cur2.close()
+        created = True
+    cur.close()
+    conn.close()
+    return jsonify({
+        "ok": True,
+        "conversation_id": conv_id,
+        "created": created,
+        "other_user_name": other_user["name"],
+        "listing_title": listing_title,
+    }), 201 if created else 200
+
+
+@app.get("/api/conversations/unread")
+def api_conversations_unread():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"total_unread": 0})
+    user_id = current_user["id"]
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        """SELECT COUNT(*) AS total FROM messages m
+           JOIN conversations c ON c.id = m.conversation_id
+           WHERE (c.user1_id = %s OR c.user2_id = %s)
+             AND m.sender_id != %s AND m.is_read = 0""",
+        (user_id, user_id, user_id),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return jsonify({"total_unread": row["total"] or 0})
+
+
+@app.get("/api/conversations/<int:conv_id>/messages")
+def api_conv_messages_get(conv_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT id FROM conversations WHERE id = %s AND (user1_id = %s OR user2_id = %s)",
+        (conv_id, user_id, user_id),
+    )
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    since = request.args.get("since", 0, type=int)
+    if since == 0:
+        cur.execute(
+            """SELECT m.id, m.sender_id, m.body, m.created_at, u.name AS sender_name
+               FROM messages m JOIN users u ON u.id = m.sender_id
+               WHERE m.conversation_id = %s ORDER BY m.id DESC LIMIT 50""",
+            (conv_id,),
+        )
+        rows = list(reversed(cur.fetchall()))
+    else:
+        cur.execute(
+            """SELECT m.id, m.sender_id, m.body, m.created_at, u.name AS sender_name
+               FROM messages m JOIN users u ON u.id = m.sender_id
+               WHERE m.conversation_id = %s AND m.id > %s ORDER BY m.id ASC""",
+            (conv_id, since),
+        )
+        rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({
+        "messages": [
+            {
+                "id": r["id"],
+                "sender_id": r["sender_id"],
+                "sender_name": r["sender_name"],
+                "body": r["body"],
+                "created_at": r["created_at"].isoformat(),
+            }
+            for r in rows
+        ]
+    })
+
+
+@app.post("/api/conversations/<int:conv_id>/messages")
+def api_conv_messages_post(conv_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT id FROM conversations WHERE id = %s AND (user1_id = %s OR user2_id = %s)",
+        (conv_id, user_id, user_id),
+    )
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    data = request.get_json(silent=True) or {}
+    body = (data.get("body") or "").strip()
+    if not body:
+        return jsonify({"error": "Message is required"}), 400
+    if len(body) > 2000:
+        return jsonify({"error": "Message too long"}), 400
+    cur2 = conn.cursor()
+    cur2.execute(
+        "INSERT INTO messages (conversation_id, sender_id, body) VALUES (%s, %s, %s)",
+        (conv_id, user_id, body),
+    )
+    conn.commit()
+    new_id = cur2.lastrowid
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True, "id": new_id}), 201
+
+
+@app.post("/api/conversations/<int:conv_id>/read")
+def api_conv_read(conv_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+    user_id = current_user["id"]
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        "SELECT id FROM conversations WHERE id = %s AND (user1_id = %s OR user2_id = %s)",
+        (conv_id, user_id, user_id),
+    )
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Not found"}), 404
+    cur2 = conn.cursor()
+    cur2.execute(
+        "UPDATE messages SET is_read = 1 WHERE conversation_id = %s AND sender_id != %s",
+        (conv_id, user_id),
+    )
+    conn.commit()
+    cur2.close()
+    cur.close()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 # ─── Watchlist API ───────────────────────────────────

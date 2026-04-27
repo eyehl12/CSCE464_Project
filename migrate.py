@@ -124,6 +124,58 @@ if not table_exists("watchlist"):
 else:
     print("watchlist table already exists")
 
+# general_chat table
+if not table_exists("general_chat"):
+    cur.execute("""
+        CREATE TABLE general_chat (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_gchat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    print("Created general_chat table")
+else:
+    print("general_chat table already exists")
+
+# conversations table
+if not table_exists("conversations"):
+    cur.execute("""
+        CREATE TABLE conversations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user1_id INT NOT NULL,
+            user2_id INT NOT NULL,
+            listing_id INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_conversation (user1_id, user2_id),
+            CONSTRAINT fk_conv_user1   FOREIGN KEY (user1_id)   REFERENCES users(id)    ON DELETE CASCADE,
+            CONSTRAINT fk_conv_user2   FOREIGN KEY (user2_id)   REFERENCES users(id)    ON DELETE CASCADE,
+            CONSTRAINT fk_conv_listing FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE SET NULL
+        )
+    """)
+    print("Created conversations table")
+else:
+    print("conversations table already exists")
+
+# messages table
+if not table_exists("messages"):
+    cur.execute("""
+        CREATE TABLE messages (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            conversation_id INT NOT NULL,
+            sender_id INT NOT NULL,
+            body TEXT NOT NULL,
+            is_read TINYINT(1) NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_msg_conv   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id)       REFERENCES users(id)         ON DELETE CASCADE
+        )
+    """)
+    print("Created messages table")
+else:
+    print("messages table already exists")
+
 conn.commit()
 cur.close()
 conn.close()
