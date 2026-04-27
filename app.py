@@ -28,6 +28,27 @@ CATEGORY_LABELS = {
     "general-auction": "General Auction",
 }
 
+CAMPUS_LOCATIONS = [
+    "Abel",
+    "Sandoz",
+    "Harper",
+    "Smith",
+    "Schramm",
+    "Suites",
+    "Villages",
+    "Courtyards",
+    "Academy",
+    "Livred",
+    "Latitude",
+    "8n",
+    "Atmosphere",
+    "50/50s",
+    "Bottoms",
+    "Other",
+]
+
+CANONICAL_LOCATION_LOOKUP = {location.lower(): location for location in CAMPUS_LOCATIONS}
+
 # ─── Helpers ───────────────────────────────────────────
 
 
@@ -35,6 +56,66 @@ def clear_user_session():
     session.pop("user_id", None)
     session.pop("user_name", None)
     session.pop("user_email", None)
+
+
+def normalize_campus_location(value):
+    if value is None:
+        return None
+
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+
+    direct_match = CANONICAL_LOCATION_LOOKUP.get(cleaned.lower())
+    if direct_match:
+        return direct_match
+
+    lowered = cleaned.lower()
+    keyword_map = {
+        "abel": "Abel",
+        "sandoz": "Sandoz",
+        "harper": "Harper",
+        "smith": "Smith",
+        "schramm": "Schramm",
+        "suite": "Suites",
+        "village": "Villages",
+        "courtyard": "Courtyards",
+        "academy": "Academy",
+        "livred": "Livred",
+        "latitude": "Latitude",
+        "8n": "8n",
+        "atmosphere": "Atmosphere",
+        "50/50": "50/50s",
+        "bottom": "Bottoms",
+        "other": "Other",
+    }
+
+    for keyword, canonical in keyword_map.items():
+        if keyword in lowered:
+            return canonical
+
+    return None
+
+
+def parse_selected_locations(raw_locations, allow_empty=False):
+    if not raw_locations:
+        return list(CAMPUS_LOCATIONS)
+
+    selected = []
+    seen = set()
+    for raw_value in raw_locations:
+        normalized = normalize_campus_location(raw_value)
+        if normalized and normalized not in seen:
+            selected.append(normalized)
+            seen.add(normalized)
+
+    if selected:
+        return selected
+
+    if allow_empty:
+        return []
+
+    return list(CAMPUS_LOCATIONS)
 
 
 def get_current_user():
@@ -125,7 +206,7 @@ def listing_row_to_json(row):
 
 @app.context_processor
 def inject_user():
-    return {"current_user": get_current_user()}
+    return {"current_user": get_current_user(), "campus_locations": CAMPUS_LOCATIONS}
 
 
 # ─── Page Routes ──────────────────────────────────────
@@ -241,7 +322,10 @@ def api_update_profile():
         return jsonify({"error": "Login required"}), 401
 
     data = request.get_json(silent=True) or {}
-    campus_location = (data.get("campus_location") or "").strip() or None
+    campus_location = normalize_campus_location(data.get("campus_location"))
+
+    if data.get("campus_location") and campus_location is None:
+        return jsonify({"error": "Please choose a valid campus location"}), 400
 
     conn = get_conn()
     cur = conn.cursor()
@@ -333,8 +417,10 @@ LISTINGS_SELECT = """
     JOIN users u ON u.id = l.seller_id
 """
 
+PUBLIC_LISTING_VISIBILITY_CLAUSE = "DATE_ADD(l.ends_at, INTERVAL 2 MINUTE) > NOW()"
 
-def build_listing_filter_clause(category, search_query):
+
+def build_listing_filter_clause(category, search_query, seller_locations=None):
     clauses = []
     params = []
 
@@ -347,10 +433,26 @@ def build_listing_filter_clause(category, search_query):
         clauses.append("(l.title LIKE %s OR l.description LIKE %s OR u.name LIKE %s)")
         params.extend([like_term, like_term, like_term])
 
+    if seller_locations == []:
+        clauses.append("1 = 0")
+    elif seller_locations and len(seller_locations) < len(CAMPUS_LOCATIONS):
+        placeholders = ", ".join(["%s"] * len(seller_locations))
+        clauses.append(f"u.campus_location IN ({placeholders})")
+        params.extend(seller_locations)
+
     if not clauses:
         return "", params
 
     return " WHERE " + " AND ".join(clauses), params
+
+
+def build_public_listing_filter_clause(category, search_query, seller_locations):
+    where_clause, params = build_listing_filter_clause(category, search_query, seller_locations)
+
+    if where_clause:
+        return where_clause + f" AND {PUBLIC_LISTING_VISIBILITY_CLAUSE}", params
+
+    return f" WHERE {PUBLIC_LISTING_VISIBILITY_CLAUSE}", params
 
 
 @app.get("/api/listings")
@@ -360,12 +462,17 @@ def api_listings():
     category = request.args.get("category", "all")
     search_query = (request.args.get("q") or "").strip()
     sort = request.args.get("sort", "default")
+    location_mode = request.args.get("location_mode", "all")
+    selected_locations = parse_selected_locations(
+        request.args.getlist("location"),
+        allow_empty=location_mode == "none",
+    )
     offset = (page - 1) * limit
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
 
-    where_clause, filter_params = build_listing_filter_clause(category, search_query)
+    where_clause, filter_params = build_public_listing_filter_clause(category, search_query, selected_locations)
 
     cur.execute(
         "SELECT COUNT(*) AS total FROM listings l JOIN users u ON u.id = l.seller_id" + where_clause,
@@ -392,6 +499,7 @@ def api_listings():
             "page": page,
             "limit": limit,
             "category": category,
+            "locations": selected_locations,
             "query": search_query,
             "sort": sort,
             "total": total,

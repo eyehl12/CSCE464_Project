@@ -60,11 +60,11 @@ CREATE TABLE watchlist (
 -- ═══════════════════════════════════════════════════════
 -- Seed Users (passwords are all "password" hashed with werkzeug)
 -- ═══════════════════════════════════════════════════════
-INSERT INTO users (id, email, password_hash, name) VALUES
-(1, 'alice@campus.edu',   'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_alice',   'Alice Johnson'),
-(2, 'bob@campus.edu',     'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_bob',     'Bob Martinez'),
-(3, 'carol@campus.edu',   'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_carol',   'Carol Chen'),
-(4, 'dave@campus.edu',    'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_dave',    'Dave Williams');
+INSERT INTO users (id, email, password_hash, name, campus_location) VALUES
+(1, 'alice@campus.edu',   'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_alice',   'Alice Johnson', 'Abel'),
+(2, 'bob@campus.edu',     'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_bob',     'Bob Martinez', 'Sandoz'),
+(3, 'carol@campus.edu',   'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_carol',   'Carol Chen', 'Courtyards'),
+(4, 'dave@campus.edu',    'scrypt:32768:8:1$XvZ0LdFwYq$placeholder_hash_dave',    'Dave Williams', 'Latitude');
 
 -- ═══════════════════════════════════════════════════════
 -- Seed Listings  (ends_at spread across future hours)
