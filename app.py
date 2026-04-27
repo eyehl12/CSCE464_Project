@@ -45,7 +45,7 @@ def get_current_user():
 
     conn = get_conn()
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id, name, email FROM users WHERE id = %s", (user_id,))
+    cur.execute("SELECT id, name, email, campus_location FROM users WHERE id = %s", (user_id,))
     user = cur.fetchone()
     cur.close()
     conn.close()
@@ -57,6 +57,7 @@ def get_current_user():
     session["user_id"] = user["id"]
     session["user_name"] = user["name"]
     session["user_email"] = user["email"]
+    session["user_campus_location"] = user["campus_location"]
     return user
 
 
@@ -114,6 +115,8 @@ def listing_row_to_json(row):
         "time_left": _time_left_str(row.get("ends_at")),
         "seller_id": row.get("seller_id"),
         "seller_name": row.get("seller_name", "Unknown"),
+        "seller_campus_location": row.get("seller_campus_location"),
+        "pickup_location": row.get("pickup_location"),
     }
 
 
@@ -195,6 +198,7 @@ def api_register():
     session["user_id"] = user_id
     session["user_name"] = name
     session["user_email"] = email
+    session["user_campus_location"] = None
 
     cur2.close()
     cur.close()
@@ -228,6 +232,26 @@ def api_login():
 def api_logout():
     clear_user_session()
     return jsonify({"ok": True})
+
+
+@app.post("/api/profile")
+def api_update_profile():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+
+    data = request.get_json(silent=True) or {}
+    campus_location = (data.get("campus_location") or "").strip() or None
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET campus_location = %s WHERE id = %s", (campus_location, current_user["id"]))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    session["user_campus_location"] = campus_location
+    return jsonify({"ok": True, "campus_location": campus_location})
 
 
 @app.post("/api/change-password")
@@ -300,7 +324,9 @@ def api_delete_account():
 LISTINGS_SELECT = """
     SELECT l.id, l.title, l.description, l.image_url, l.category,
            l.starting_price_cents, l.ends_at, l.seller_id, l.created_at,
+           l.pickup_location,
            u.name AS seller_name,
+           u.campus_location AS seller_campus_location,
            (SELECT MAX(b.amount_cents) FROM bids b WHERE b.listing_id = l.id) AS current_bid_cents,
            (SELECT COUNT(*)            FROM bids b WHERE b.listing_id = l.id) AS bid_count
     FROM listings l
@@ -333,6 +359,7 @@ def api_listings():
     limit = max(1, min(request.args.get("limit", 12, type=int), 50))
     category = request.args.get("category", "all")
     search_query = (request.args.get("q") or "").strip()
+    sort = request.args.get("sort", "default")
     offset = (page - 1) * limit
 
     conn = get_conn()
@@ -346,8 +373,13 @@ def api_listings():
     )
     total = cur.fetchone()["total"]
 
+    if sort == "hot":
+        order_clause = " ORDER BY CASE WHEN l.ends_at > NOW() THEN 0 ELSE 1 END ASC, bid_count DESC, l.ends_at ASC"
+    else:
+        order_clause = " ORDER BY CASE WHEN l.ends_at > NOW() THEN 0 ELSE 1 END ASC, l.ends_at ASC"
+
     cur.execute(
-        LISTINGS_SELECT + where_clause + " ORDER BY l.ends_at ASC LIMIT %s OFFSET %s",
+        LISTINGS_SELECT + where_clause + order_clause + " LIMIT %s OFFSET %s",
         tuple(filter_params + [limit, offset]),
     )
 
@@ -361,6 +393,7 @@ def api_listings():
             "limit": limit,
             "category": category,
             "query": search_query,
+            "sort": sort,
             "total": total,
             "listings": [listing_row_to_json(row) for row in rows],
         }
@@ -402,6 +435,14 @@ def api_listing_detail(listing_id):
         for b in bids
     ]
 
+    # Winner info for ended auctions
+    if result["is_ended"] and bids:
+        result["winner_name"] = bids[0]["bidder_name"]
+        result["winner_amount"] = round(bids[0]["amount_cents"] / 100, 2)
+    else:
+        result["winner_name"] = None
+        result["winner_amount"] = None
+
     # If the current user is logged in, provide extra context
     current_user = get_current_user()
     if current_user:
@@ -418,6 +459,16 @@ def api_listing_detail(listing_id):
     else:
         result["user_is_seller"] = False
         result["user_highest_bid"] = None
+
+    # Watchlist status
+    if current_user:
+        cur.execute(
+            "SELECT id FROM watchlist WHERE user_id = %s AND listing_id = %s",
+            (current_user["id"], listing_id),
+        )
+        result["user_watching"] = cur.fetchone() is not None
+    else:
+        result["user_watching"] = False
 
     cur.close()
     conn.close()
@@ -439,6 +490,7 @@ def api_create_listing():
     category = data.get("category") or ""
     starting_price = data.get("starting_price")
     duration_value = data.get("duration_value", 24)
+    pickup_location = (data.get("pickup_location") or "").strip() or None
 
     if not title:
         return jsonify({"error": "Title is required"}), 400
@@ -469,9 +521,9 @@ def api_create_listing():
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO listings (seller_id, title, description, image_url, category, starting_price_cents, ends_at) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (user_id, title, description, image_url, category, starting_price_cents, ends_at),
+        "INSERT INTO listings (seller_id, title, description, image_url, category, starting_price_cents, pickup_location, ends_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (user_id, title, description, image_url, category, starting_price_cents, pickup_location, ends_at),
     )
     conn.commit()
     listing_id = cur.lastrowid
@@ -562,20 +614,43 @@ def api_place_bid(listing_id):
         conn.close()
         return jsonify({"error": f"Bid must be at least ${listing['starting_price_cents'] / 100:.2f}"}), 400
 
-    # Must be higher than current highest bid
+    # Must be higher than current highest bid (minimum $0.25 increment)
     cur.execute("SELECT MAX(amount_cents) AS max_bid FROM bids WHERE listing_id = %s", (listing_id,))
     max_row = cur.fetchone()
     current_max = max_row["max_bid"] if max_row and max_row["max_bid"] else 0
-    if amount_cents <= current_max:
+
+    # Cannot outbid yourself if you are already the highest bidder
+    if current_max > 0:
+        cur.execute(
+            "SELECT bidder_id FROM bids WHERE listing_id = %s ORDER BY amount_cents DESC, created_at DESC LIMIT 1",
+            (listing_id,),
+        )
+        top_row = cur.fetchone()
+        if top_row and top_row["bidder_id"] == user_id:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "You are already the highest bidder"}), 400
+
+    min_next_bid = current_max + 25  # $0.25 minimum increment
+    if amount_cents < min_next_bid:
         cur.close()
         conn.close()
-        return jsonify({"error": f"Bid must be higher than ${current_max / 100:.2f}"}), 400
+        return jsonify({"error": f"Bid must be at least ${min_next_bid / 100:.2f} ($0.25 minimum increment)"}), 400
 
     cur2 = conn.cursor()
     cur2.execute(
         "INSERT INTO bids (listing_id, bidder_id, amount_cents) VALUES (%s, %s, %s)",
         (listing_id, user_id, amount_cents),
     )
+
+    # Auto-extend auction by 15 seconds if bid placed in the last 2 minutes
+    time_remaining = (listing["ends_at"] - datetime.now()).total_seconds()
+    if time_remaining <= 120:
+        cur2.execute(
+            "UPDATE listings SET ends_at = ends_at + INTERVAL 15 SECOND WHERE id = %s",
+            (listing_id,),
+        )
+
     conn.commit()
 
     cur2.close()
@@ -583,6 +658,68 @@ def api_place_bid(listing_id):
     conn.close()
 
     return jsonify({"ok": True, "amount": amount, "listing_id": listing_id})
+
+
+# ─── Watchlist API ───────────────────────────────────
+
+
+@app.post("/api/watchlist/<int:listing_id>")
+def api_watchlist_add(listing_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT IGNORE INTO watchlist (user_id, listing_id) VALUES (%s, %s)",
+            (current_user["id"], listing_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({"ok": True, "watching": True})
+
+
+@app.delete("/api/watchlist/<int:listing_id>")
+def api_watchlist_remove(listing_id):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "DELETE FROM watchlist WHERE user_id = %s AND listing_id = %s",
+            (current_user["id"], listing_id),
+        )
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return jsonify({"ok": True, "watching": False})
+
+
+@app.get("/api/my/watchlist")
+def api_my_watchlist():
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Login required"}), 401
+
+    conn = get_conn()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+        LISTINGS_SELECT + " JOIN watchlist w ON w.listing_id = l.id"
+        " WHERE w.user_id = %s ORDER BY w.created_at DESC",
+        (current_user["id"],),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify({"watchlist": [listing_row_to_json(r) for r in rows]})
 
 
 # ─── Profile Data API ─────────────────────────────────

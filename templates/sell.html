@@ -90,6 +90,14 @@
                     </div>
                 </div>
 
+                <!-- Pickup Location -->
+                <div>
+                    <label for="pickup-location" class="block text-sm font-semibold text-gray-700 mb-1">Pickup Location <span class="text-gray-400 font-normal">(optional)</span></label>
+                    <input id="pickup-location" type="text" maxlength="255" placeholder="e.g. Sandoz Hall lobby, Nebraska Union, etc."
+                           class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent">
+                    <p class="text-xs text-gray-400 mt-1">Where can the buyer meet you to pick up the item?</p>
+                </div>
+
                 <!-- Message -->
                 <p id="message" class="hidden rounded-lg px-4 py-3 text-sm font-medium"></p>
 
@@ -124,12 +132,13 @@
             btn.textContent = 'Creating…';
 
             const body = {
-                title:          document.getElementById('title').value.trim(),
-                description:    document.getElementById('description').value.trim(),
-                image_url:      document.getElementById('image-url').value.trim(),
-                category:       document.getElementById('category').value,
-                starting_price: parseFloat(document.getElementById('starting-price').value),
-                duration_value: document.getElementById('duration').value,
+                title:           document.getElementById('title').value.trim(),
+                description:     document.getElementById('description').value.trim(),
+                image_url:       document.getElementById('image-url').value.trim(),
+                category:        document.getElementById('category').value,
+                starting_price:  parseFloat(document.getElementById('starting-price').value),
+                duration_value:  document.getElementById('duration').value,
+                pickup_location: document.getElementById('pickup-location').value.trim() || null,
             };
 
             try {

@@ -98,13 +98,20 @@
 
     <main class="max-w-7xl mx-auto px-4 -mt-8 md:-mt-24 pb-20 relative z-10">
         <section class="bg-white/95 border border-rose-200 rounded-xl shadow-md p-4 md:p-5 mb-6">
-            <h2 class="text-sm font-bold uppercase tracking-wide text-rose-700 mb-3">Auction Sections</h2>
-            <div id="category-filters" class="flex flex-wrap gap-2">
-                <button class="category-pill active border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="all">All Lots</button>
-                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="educational-items">Educational Items</button>
-                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="university-merch">University Merch</button>
-                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="dorm-essentials">Dorm Essentials</button>
-                <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="general-auction">General Auction</button>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-sm font-bold uppercase tracking-wide text-rose-700 mb-3">Auction Sections</h2>
+                    <div id="category-filters" class="flex flex-wrap gap-2">
+                        <button class="category-pill active border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="all">All Lots</button>
+                        <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="educational-items">Educational Items</button>
+                        <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="university-merch">University Merch</button>
+                        <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="dorm-essentials">Dorm Essentials</button>
+                        <button class="category-pill border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full" data-category="general-auction">General Auction</button>
+                    </div>
+                </div>
+                <button id="hot-sort-btn" class="flex items-center gap-2 border border-rose-200 text-sm font-semibold px-4 py-2 rounded-full transition-colors hover:bg-rose-50">
+                    <span>&#128293;</span> Hot Items
+                </button>
             </div>
         </section>
 
@@ -137,7 +144,15 @@
         let totalListings = 0;
         let currentCategory = "all";
         let currentSearch = "";
+        let currentSort = "default";
         let searchTimer = null;
+        let watchedIds = new Set();
+
+        {% if current_user %}
+        fetch('/api/my/watchlist').then(r => r.json()).then(d => {
+            (d.watchlist || []).forEach(item => watchedIds.add(item.id));
+        }).catch(() => {});
+        {% endif %}
 
         const grid = document.getElementById('listing-grid');
         const loadBtn = document.getElementById('load-more-btn');
@@ -145,6 +160,7 @@
         const categoryFilters = document.getElementById('category-filters');
         const logoutBtn = document.getElementById('logout-btn');
         const searchInput = document.getElementById('listing-search');
+        const hotSortBtn = document.getElementById('hot-sort-btn');
 
         // ── Helpers ──
 
@@ -170,6 +186,7 @@
                 page: String(page),
                 limit: String(LISTINGS_PER_PAGE),
                 category: category,
+                sort: currentSort,
             });
 
             if (search) {
@@ -202,8 +219,9 @@
                 card.href = '/listing/' + item.id;
                 card.className = "listing-card p-4 rounded-lg shadow-sm flex flex-col no-underline text-inherit";
                 card.innerHTML = `
-                    <div class="h-44 mb-4 bg-rose-50 flex items-center justify-center overflow-hidden rounded">
+                    <div class="h-44 mb-4 bg-rose-50 flex items-center justify-center overflow-hidden rounded relative">
                         <img src="${item.image_url}" alt="${item.title}" class="w-full h-full object-cover" loading="lazy">
+                        ${watchedIds.has(item.id) ? '<span class="absolute top-2 right-2 bg-white/90 rounded-full px-1.5 py-0.5 text-rose-600 text-xs font-bold shadow">&#9829;</span>' : ''}
                     </div>
                     <div class="text-xs font-bold uppercase tracking-wide text-rose-700 mb-1">${item.category_label}</div>
                     <h3 class="text-sm font-semibold text-gray-800 line-clamp-2 mb-2 h-10">${item.title}</h3>
@@ -278,6 +296,19 @@
             loadBtn.classList.remove('hidden');
             loadNextBatch();
         }
+
+        hotSortBtn.addEventListener('click', function () {
+            if (currentSort === 'hot') {
+                currentSort = 'default';
+                hotSortBtn.classList.remove('bg-rose-700', 'text-white', 'border-rose-700');
+                hotSortBtn.classList.add('border-rose-200');
+            } else {
+                currentSort = 'hot';
+                hotSortBtn.classList.add('bg-rose-700', 'text-white', 'border-rose-700');
+                hotSortBtn.classList.remove('border-rose-200');
+            }
+            resetAndLoad(currentCategory, currentSearch);
+        });
 
         // ── Events ──
 

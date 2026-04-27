@@ -10,6 +10,7 @@ CREATE TABLE users (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    campus_location VARCHAR(255) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -24,6 +25,7 @@ CREATE TABLE listings (
     image_url TEXT NOT NULL,
     category ENUM('educational-items', 'university-merch', 'dorm-essentials', 'general-auction') NOT NULL,
     starting_price_cents INT NOT NULL,
+    pickup_location VARCHAR(255) DEFAULT NULL,
     ends_at DATETIME NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_listings_seller FOREIGN KEY (seller_id) REFERENCES users(id) ON DELETE CASCADE
@@ -40,6 +42,19 @@ CREATE TABLE bids (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_bids_listing FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE,
     CONSTRAINT fk_bids_bidder  FOREIGN KEY (bidder_id)  REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ═══════════════════════════════════════════════════════
+-- Watchlist
+-- ═══════════════════════════════════════════════════════
+CREATE TABLE watchlist (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    listing_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_watchlist (user_id, listing_id),
+    CONSTRAINT fk_watchlist_user    FOREIGN KEY (user_id)    REFERENCES users(id)    ON DELETE CASCADE,
+    CONSTRAINT fk_watchlist_listing FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
 );
 
 -- ═══════════════════════════════════════════════════════

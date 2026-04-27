@@ -86,7 +86,21 @@
             const ended = item.is_ended;
             const price = item.current_bid ?? item.starting_price;
             const priceLabel = item.current_bid ? 'Current Bid' : 'Starting Bid';
-            const minBid = item.current_bid ? (item.current_bid + 0.01) : item.starting_price;
+            const minBid = item.current_bid ? (item.current_bid + 0.25) : item.starting_price;
+
+            let watchlistHTML = '';
+            {% if current_user %}
+                if (!item.user_is_seller) {
+                    const watching = item.user_watching;
+                    watchlistHTML = `
+                        <button id="watchlist-btn" data-watching="${watching}" class="w-full flex items-center justify-center gap-2 border rounded-xl px-5 py-2.5 text-sm font-semibold transition-all
+                            ${watching ? 'bg-rose-50 border-rose-400 text-rose-700' : 'border-gray-300 text-gray-600 hover:border-rose-300 hover:text-rose-600'}">
+                            <span id="watchlist-icon">${watching ? '&#9829;' : '&#9825;'}</span>
+                            <span id="watchlist-label">${watching ? 'Watching' : 'Add to Watchlist'}</span>
+                        </button>
+                    `;
+                }
+            {% endif %}
 
             let bidFormHTML = '';
             {% if current_user %}
@@ -102,6 +116,8 @@
                     `;
                 } else if (ended) {
                     bidFormHTML = '<div class="bg-gray-100 border border-gray-200 rounded-xl p-4 text-sm text-gray-600 font-medium">This auction has ended.</div>';
+                } else if (item.user_highest_bid !== null && item.user_highest_bid === item.current_bid) {
+                    bidFormHTML = `<div class="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800 font-medium">You are the highest bidder at <strong>${dollars(item.user_highest_bid)}</strong>. Good luck!</div>`;
                 } else {
                     bidFormHTML = `
                         <div class="bg-rose-50 border border-rose-200 rounded-xl p-5">
@@ -142,6 +158,19 @@
                 bidRows = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">No bids yet — be the first!</td></tr>';
             }
 
+            let winnerBannerHTML = '';
+            if (ended && item.winner_name) {
+                winnerBannerHTML = `<div class="bg-green-50 border border-green-300 rounded-xl p-4 flex items-center gap-3 mt-3">
+                        <span class="text-green-600 text-xl">&#127942;</span>
+                        <div>
+                            <div class="text-xs font-bold text-green-700 uppercase tracking-wide">Auction Winner</div>
+                            <div class="text-sm font-semibold text-green-900">${item.winner_name} &mdash; ${dollars(item.winner_amount)}</div>
+                        </div>
+                    </div>`;
+            } else if (ended && item.bid_count === 0) {
+                winnerBannerHTML = '<div class="bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm text-gray-500 mt-3">Auction ended with no bids.</div>';
+            }
+
             main.innerHTML = `
                 <a href="/" class="inline-flex items-center gap-1 text-rose-700 hover:text-rose-900 text-sm font-semibold mb-6">
                     ← Back to Auctions
@@ -162,7 +191,13 @@
                         <div class="flex items-center gap-2 text-sm text-gray-500">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
                             Seller: <span class="font-semibold text-gray-700">${item.seller_name}</span>
+                            ${item.seller_campus_location ? `<span class="text-gray-400">&#183;</span><span class="text-xs text-gray-500">${item.seller_campus_location}</span>` : ''}
                         </div>
+                        ${item.pickup_location ? `
+                        <div class="flex items-center gap-2 text-sm text-gray-500">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                            Pickup: <span class="font-semibold text-gray-700">${item.pickup_location}</span>
+                        </div>` : ''}
 
                         <!-- Price block -->
                         <div class="bg-white border border-rose-200 rounded-xl p-5 shadow-sm">
@@ -177,9 +212,13 @@
                                 </span>
                             </div>
                         </div>
+                        ${winnerBannerHTML}
 
                         <!-- Bid form -->
                         ${bidFormHTML}
+
+                        <!-- Watchlist -->
+                        ${watchlistHTML}
                     </div>
                 </div>
 
@@ -227,6 +266,23 @@
                         msg.classList.add('text-red-600');
                         msg.classList.remove('hidden');
                     }
+                });
+            }
+
+            // ── Attach watchlist handler ──
+            const watchlistBtn = document.getElementById('watchlist-btn');
+            if (watchlistBtn) {
+                watchlistBtn.addEventListener('click', async function () {
+                    const watching = watchlistBtn.dataset.watching === 'true';
+                    const method = watching ? 'DELETE' : 'POST';
+                    const res = await fetch('/api/watchlist/' + LISTING_ID, { method });
+                    if (!res.ok) return;
+                    const nowWatching = !watching;
+                    watchlistBtn.dataset.watching = String(nowWatching);
+                    document.getElementById('watchlist-icon').innerHTML = nowWatching ? '&#9829;' : '&#9825;';
+                    document.getElementById('watchlist-label').textContent = nowWatching ? 'Watching' : 'Add to Watchlist';
+                    watchlistBtn.className = 'w-full flex items-center justify-center gap-2 border rounded-xl px-5 py-2.5 text-sm font-semibold transition-all '
+                        + (nowWatching ? 'bg-rose-50 border-rose-400 text-rose-700' : 'border-gray-300 text-gray-600 hover:border-rose-300 hover:text-rose-600');
                 });
             }
 

@@ -35,7 +35,21 @@
                         <dt class="text-red-200">Email</dt>
                         <dd class="mt-1 text-lg font-medium text-white">{{ current_user.email }}</dd>
                     </div>
+                    <div>
+                        <dt class="text-red-200">Campus Location</dt>
+                        <dd class="mt-1 text-lg font-medium text-white" id="campus-location-display">
+                            {{ current_user.campus_location or 'Not set' }}
+                        </dd>
+                    </div>
                 </dl>
+                <form id="location-form" class="mt-6 flex gap-3">
+                    <input id="campus_location" type="text" maxlength="255"
+                           value="{{ current_user.campus_location or '' }}"
+                           placeholder="e.g. Sandoz Hall, 14th & R Street"
+                           class="flex-1 rounded-2xl border border-red-200/20 bg-black/20 px-4 py-2 text-white text-sm outline-none placeholder:text-red-100/50 focus:border-red-300">
+                    <button type="submit" class="rounded-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-400">Save</button>
+                </form>
+                <p id="location-message" class="hidden mt-2 text-xs"></p>
             </section>
 
             <section class="rounded-3xl border border-red-400/20 bg-white/10 p-8 shadow-2xl backdrop-blur">
@@ -65,6 +79,15 @@
                 You haven't placed any bids yet. <a href="/" class="font-semibold text-white underline underline-offset-4">Browse auctions →</a>
             </div>
             <div id="my-bids" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
+        </section>
+
+        <!-- ═══ Watchlist ═══ -->
+        <section class="mt-10">
+            <h2 class="text-2xl font-bold mb-4">&#9829; Watchlist</h2>
+            <div id="my-watchlist-empty" class="hidden rounded-2xl border border-dashed border-red-400/30 px-6 py-8 text-center text-red-100/70 text-sm">
+                Your watchlist is empty. <a href="/" class="font-semibold text-white underline underline-offset-4">Browse auctions →</a>
+            </div>
+            <div id="my-watchlist" class="grid gap-4 md:grid-cols-2 lg:grid-cols-3"></div>
         </section>
 
         <!-- ═══ Danger Zone ═══ -->
@@ -100,6 +123,50 @@
             if (h > 0) return h + 'h ' + m + 'm left';
             return m + 'm left';
         }
+
+        // ── Campus Location ──
+        document.getElementById('location-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const val = document.getElementById('campus_location').value.trim();
+            const response = await fetch('/api/profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ campus_location: val || null }),
+            });
+            const data = await response.json();
+            const msg = document.getElementById('location-message');
+            if (response.ok) {
+                document.getElementById('campus-location-display').textContent = data.campus_location || 'Not set';
+                msg.textContent = 'Location saved!';
+                msg.className = 'mt-2 text-xs text-emerald-300';
+            } else {
+                msg.textContent = data.error || 'Failed to save.';
+                msg.className = 'mt-2 text-xs text-red-300';
+            }
+            msg.classList.remove('hidden');
+        });
+
+        // ── Campus Location ──
+        document.getElementById('location-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const val = document.getElementById('campus_location').value.trim();
+            const response = await fetch('/api/profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ campus_location: val || null }),
+            });
+            const data = await response.json();
+            const msg = document.getElementById('location-message');
+            if (response.ok) {
+                document.getElementById('campus-location-display').textContent = data.campus_location || 'Not set';
+                msg.textContent = 'Location saved!';
+                msg.className = 'mt-2 text-xs text-emerald-300';
+            } else {
+                msg.textContent = data.error || 'Failed to save.';
+                msg.className = 'mt-2 text-xs text-red-300';
+            }
+            msg.classList.remove('hidden');
+        });
 
         // ── Change Password ──
         document.getElementById('password-form').addEventListener('submit', async (event) => {
@@ -202,9 +269,13 @@
                     const ended = item.is_ended;
                     const tl = ended ? 'Ended' : timeLeft(item.ends_at);
                     const winClass = item.is_winning ? 'border-green-400/40 bg-green-900/20' : 'border-red-400/20 bg-white/10';
-                    const badge = item.is_winning
-                        ? '<span class="bg-green-500/20 text-green-300 text-xs px-2 py-0.5 rounded-full font-bold">Winning</span>'
-                        : '<span class="bg-red-500/20 text-red-300 text-xs px-2 py-0.5 rounded-full font-bold">Outbid</span>';
+                    const badge = ended
+                        ? (item.is_winning
+                            ? '<span class="bg-green-500/20 text-green-300 text-xs px-2 py-0.5 rounded-full font-bold">Won</span>'
+                            : '<span class="bg-gray-500/20 text-gray-400 text-xs px-2 py-0.5 rounded-full font-bold">Lost</span>')
+                        : (item.is_winning
+                            ? '<span class="bg-green-500/20 text-green-300 text-xs px-2 py-0.5 rounded-full font-bold">Winning</span>'
+                            : '<span class="bg-red-500/20 text-red-300 text-xs px-2 py-0.5 rounded-full font-bold">Outbid</span>');
 
                     const card = document.createElement('a');
                     card.href = '/listing/' + item.id;
@@ -212,7 +283,7 @@
                     card.innerHTML = `
                         <div class="flex items-center justify-between mb-2">
                             <div class="text-xs font-bold uppercase tracking-wide text-red-300">${item.category_label}</div>
-                            ${ended ? '<span class="text-xs text-gray-400">Ended</span>' : badge}
+                            ${badge}
                         </div>
                         <h3 class="text-sm font-semibold text-white mb-2">${item.title}</h3>
                         <div class="text-lg font-bold text-white">${dollars(price)}
@@ -229,6 +300,49 @@
                 });
             } catch (err) {
                 console.error('Failed to load bids:', err);
+            }
+        })();
+        // ── Load My Watchlist ──
+        (async function () {
+            const container = document.getElementById('my-watchlist');
+            const empty = document.getElementById('my-watchlist-empty');
+            try {
+                const res = await fetch('/api/my/watchlist');
+                const data = await res.json();
+                const items = data.watchlist || [];
+
+                if (items.length === 0) {
+                    empty.classList.remove('hidden');
+                    return;
+                }
+
+                items.forEach(function (item) {
+                    const price = item.current_bid || item.starting_price;
+                    const ended = item.is_ended;
+                    const tl = ended ? 'Ended' : timeLeft(item.ends_at);
+
+                    const card = document.createElement('a');
+                    card.href = '/listing/' + item.id;
+                    card.className = 'block rounded-2xl border border-red-400/20 bg-white/10 p-5 backdrop-blur transition hover:bg-white/20 no-underline text-inherit';
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="text-xs font-bold uppercase tracking-wide text-red-300">${item.category_label}</div>
+                            <span class="text-rose-300 text-sm">&#9829;</span>
+                        </div>
+                        <h3 class="text-sm font-semibold text-white mb-2">${item.title}</h3>
+                        <div class="text-lg font-bold text-white">${dollars(price)}
+                            <span class="text-xs font-normal text-red-200 ml-1">${item.current_bid ? 'current bid' : 'starting bid'}</span>
+                        </div>
+                        <div class="mt-2 flex items-center gap-3 text-xs text-red-100/80">
+                            <span>${item.bid_count} bid${item.bid_count !== 1 ? 's' : ''}</span>
+                            <span>Seller: ${item.seller_name}</span>
+                            <span class="${ended ? 'text-gray-400' : 'text-amber-400'}">${tl}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            } catch (err) {
+                console.error('Failed to load watchlist:', err);
             }
         })();
     </script>
